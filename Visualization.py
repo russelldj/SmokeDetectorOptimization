@@ -190,6 +190,9 @@ class SDOptimizer():
             funcs.append(self.make_lookup(x, y, times))
 
         def ret_func(xys, verbose=False):
+            """
+            xys represents the x, y location of each of the smoke detectors
+            """
             all_times = []  # each internal list coresponds to a smoke detector location
             for i in range(0, len(xys), 2):
                 all_times.append([])
@@ -219,19 +222,60 @@ class SDOptimizer():
             ax[i].scatter(x, y, c=z)
             for j in range(0, len(optimized), 2):
                 ax[i].scatter(optimized[j], optimized[j + 1], c='w')
-        f.show()
+        plt.show()
+
+    def plot_sweep(self, xytimes, fixed_detectors, bounds, centers=None):
+        """
+        xytimes : ArrayLike[Tuple[]]
+            the smoke propagation information
+        xs : ArrayLike
+            [x1, y1, x2, y2...] representing the fixed location of the smoke detectors
+        bounds : ArrayLike
+            [x_low, x_high, y_low, y_high] the bounds on the swept variable
+        """
+        time_func = self.make_total_lookup_function(xytimes)
+        print(time_func)
+        x_low, x_high, y_low, y_high = bounds
+        xs = np.linspace(x_low, x_high)
+        ys = np.linspace(y_low, y_high)
+        grid_xs, grid_ys = np.meshgrid(xs, ys)
+        grid_xs = grid_xs.flatten()
+        grid_ys = grid_ys.flatten()
+        grid = np.vstack((grid_xs, grid_ys)).transpose()
+        print(grid.shape)
+        times = []
+        for xy in grid:
+            locations = np.hstack((fixed_detectors, xy))
+            times.append(time_func(locations))
+        plt.cla()
+        plt.clf()
+        cb = plt.scatter(grid_xs, grid_ys, c=times, cmap=plt.cm.inferno)
+        # even and odd points
+        fixed = plt.scatter(fixed_detectors[::2], fixed_detectors[1::2], c='k')
+        plt.colorbar(cb)  # Add a colorbar to a plot
+        if centers is not None:
+            centers = plt.scatter(centers[::2], centers[1::2], c='w')
+            plt.legend([fixed, centers], ["The fixed detectors", "Centers of smoke sources"])
+        else:
+            plt.legend([fixed], ["The fixed detectors"])
+        plt.title("Effects of placing the last detector with {} fixed".format(int(len(fixed_detectors)/2)))
+        plt.show()
+
 
 SDO = SDOptimizer()
-SDO.load_data(DATA_FILE)
+SDO.load_data(DATA_FILE)  # Load the data file
 X1, Y1, time_to_alarm1 = SDO.get_time_to_alarm(False)
-X2, Y2, time_to_alarm2 = SDO.example_time_to_alarm((0, 1), (0, 1), (0.3, 0.7), False)
+X2, Y2, time_to_alarm2 = SDO.example_time_to_alarm(
+    (0, 1), (0, 1), (0.3, 0.7), False)
 ret_func = SDO.make_lookup(X1, Y1, time_to_alarm1)
 total_ret_func = SDO.make_total_lookup_function(
     [(X1, Y1, time_to_alarm1), (X2, Y2, time_to_alarm2)])
 
-x1, y1, z1 = SDO.example_time_to_alarm([0, 1], [0, 1], [0.3, 0.7], False)
-x2, y2, z2 = SDO.example_time_to_alarm([0, 1], [0, 1], [0.7, 0.3], False)
-x3, y3, z3 = SDO.example_time_to_alarm([0, 1], [0, 1], [0.5, 0.5], False)
+CENTERS = [0.2, 0.8, 0.8, 0.8, 0.8, 0.2]
+
+x1, y1, z1 = SDO.example_time_to_alarm([0, 1], [0, 1], CENTERS[0:2], False)
+x2, y2, z2 = SDO.example_time_to_alarm([0, 1], [0, 1], CENTERS[2:4], False)
+x3, y3, z3 = SDO.example_time_to_alarm([0, 1], [0, 1], CENTERS[4:6], False)
 inputs = [(x1, y1, z1), (x2, y2, z2), (x3, y3, z3)]
 
 total_ret_func = SDO.make_total_lookup_function(inputs)
@@ -241,9 +285,10 @@ res = minimize(total_ret_func, INIT, method='COBYLA')
 print(res)
 x = res.x
 
-SDO.plot_inputs(inputs, x)
+#SDO.plot_inputs(inputs, x)
+SDO.plot_sweep(inputs, [0.1, 0.0, 0.0, 0.3][2:], [0, 1, 0, 1], CENTERS)
 
-#BOUNDS = ((0, 8), (0, 3))  # constraints on inputs
+# BOUNDS = ((0, 8), (0, 3))  # constraints on inputs
 #INIT = (1.70799994 + 0.1, 1.89999998)
 #res = minimize(ret_func, INIT, method='S', bounds=BOUNDS)
-#print(res)
+# print(res)
