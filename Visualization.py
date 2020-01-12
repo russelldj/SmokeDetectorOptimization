@@ -145,11 +145,12 @@ class SDOptimizer():
         x, y = np.meshgrid(Xs, Ys)
         z = (x - center[0]) ** 2 + (y - center[1]) ** 2
         z = z * scale + offset
-        plt.cla()
-        plt.clf()
-        cb = plt.pcolormesh(x, y, z, cmap=plt.cm.inferno)
-        plt.colorbar(cb)  # Add a colorbar to a plot
-        plt.pause(4.0)
+        if show:
+            plt.cla()
+            plt.clf()
+            cb = plt.pcolormesh(x, y, z, cmap=plt.cm.inferno)
+            plt.colorbar(cb)  # Add a colorbar to a plot
+            plt.pause(4.0)
 
         x = x.flatten()
         y = y.flatten()
@@ -218,13 +219,12 @@ class SDOptimizer():
             ax[i].scatter(x, y, c=z)
             for j in range(0, len(optimized), 2):
                 ax[i].scatter(optimized[j], optimized[j + 1], c='w')
-
+        f.show()
 
 SDO = SDOptimizer()
 SDO.load_data(DATA_FILE)
-# SDO.visualize()
 X1, Y1, time_to_alarm1 = SDO.get_time_to_alarm(False)
-X2, Y2, time_to_alarm2 = SDO.example_time_to_alarm((0, 1), (0, 1), (0.3, 0.7))
+X2, Y2, time_to_alarm2 = SDO.example_time_to_alarm((0, 1), (0, 1), (0.3, 0.7), False)
 ret_func = SDO.make_lookup(X1, Y1, time_to_alarm1)
 total_ret_func = SDO.make_total_lookup_function(
     [(X1, Y1, time_to_alarm1), (X2, Y2, time_to_alarm2)])
@@ -243,9 +243,7 @@ x = res.x
 
 SDO.plot_inputs(inputs, x)
 
-
-BOUNDS = ((0, 8), (0, 3))  # constraints on inputs
-INIT = (4, 1.25)
-INIT = (1.70799994 + 0.1, 1.89999998)
-res = minimize(ret_func, INIT, method='SLSQP', bounds=BOUNDS)
-print(res)
+#BOUNDS = ((0, 8), (0, 3))  # constraints on inputs
+#INIT = (1.70799994 + 0.1, 1.89999998)
+#res = minimize(ret_func, INIT, method='S', bounds=BOUNDS)
+#print(res)
