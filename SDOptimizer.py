@@ -37,7 +37,8 @@ class SDOptimizer():
                 if "symmetry" in line:
                     all_points.append([line])
                 all_points[-1].append(line)
-        self.logger.info("The number of timesteps is {}".format(len(all_points)))
+        self.logger.info(
+            "The number of timesteps is {}".format(len(all_points)))
 
         self.all_times = []
         self.max_consentrations = []
@@ -131,7 +132,8 @@ class SDOptimizer():
             plt.ylabel("Y position")
             plt.title("Time to alarm")
             norm = mpl.colors.Normalize(vmin=0, vmax=BIG_NUMBER)
-            cb = plt.scatter(X, Y, c=time_to_alarm, cmap=plt.cm.inferno, norm=norm)
+            cb = plt.scatter(X, Y, c=time_to_alarm,
+                             cmap=plt.cm.inferno, norm=norm)
             plt.colorbar(cb)  # Add a colorbar to a plot
         return (X, Y, time_to_alarm)
 
@@ -224,7 +226,8 @@ class SDOptimizer():
         for i, (x, y, z) in enumerate(inputs):
             ax[i].scatter(x, y, c=z, cmap=plt.cm.inferno)
             for j in range(0, len(optimized), 2):
-                ax[i].scatter(optimized[j], optimized[j + 1], c='w', edgecolors='k')
+                ax[i].scatter(optimized[j], optimized[j + 1],
+                              c='w', edgecolors='k')
         plt.show()
 
     def plot_sweep(self, xytimes, fixed_detectors, bounds, centers=None):
@@ -236,6 +239,7 @@ class SDOptimizer():
         bounds : ArrayLike
             [x_low, x_high, y_low, y_high] the bounds on the swept variable
         """
+        # TODO refactor so this is the same as the other one
         time_func = self.make_total_lookup_function(xytimes)
         print(time_func)
         x_low, x_high, y_low, y_high = bounds
@@ -258,13 +262,62 @@ class SDOptimizer():
         plt.colorbar(cb)  # Add a colorbar to a plot
         if centers is not None:
             centers = plt.scatter(centers[::2], centers[1::2], c='w')
-            plt.legend([fixed, centers], ["The fixed detectors", "Centers of smoke sources"])
+            plt.legend([fixed, centers], [
+                       "The fixed detectors", "Centers of smoke sources"])
         else:
             plt.legend([fixed], ["The fixed detectors"])
-        plt.title("Effects of placing the last detector with {} fixed".format(int(len(fixed_detectors)/2)))
+        plt.title("Effects of placing the last detector with {} fixed".format(
+            int(len(fixed_detectors)/2)))
         plt.show()
 
-    def optimize(self, sources, bounds, initialization):
+    def visualize_all(self, objective_func, optimized_detectors, bounds):
+        """
+        The goal is to do a sweep with each of the detectors leaving the others fixed
+        """
+        # set up the sampling locations
+        x_low, x_high, y_low, y_high = bounds
+        xs = np.linspace(x_low, x_high)
+        ys = np.linspace(y_low, y_high)
+        grid_xs, grid_ys = np.meshgrid(xs, ys)
+        grid_xs = grid_xs.flatten()
+        grid_ys = grid_ys.flatten()
+        # This is a (n, 2) where each row is a point
+        grid = np.vstack((grid_xs, grid_ys)).transpose()
+
+        # create the subplots
+        plt.cla()
+        plt.clf()
+        f, ax = plt.subplots(1, int(len(optimized_detectors)/2))
+
+        num_samples = grid.shape[0]
+
+        for i in range(0, len(optimized_detectors), 2):
+            print(i)
+            selected_detectors = np.concatenate(
+                (optimized_detectors[:i], optimized_detectors[(i+2):]), axis=0)  # get all but one
+            print(selected_detectors)
+
+            repeated_selected = np.tile(np.expand_dims(
+                selected_detectors, axis=0), reps=(num_samples, 1))
+            print(repeated_selected.shape)
+            locations = np.concatenate((grid, repeated_selected), axis=1)
+            print(locations.shape)
+
+            times = [objective_func(xys) for xys in locations]
+            which_plot = int(i/2)
+            cb = ax[which_plot].scatter(
+                grid_xs, grid_ys, c=times, cmap=plt.cm.inferno)
+            fixed = ax[which_plot].scatter(
+                selected_detectors[::2], selected_detectors[1::2], c='w', edgecolors='k')
+            ax[which_plot].legend([fixed], ["the fixed detectors"])
+            ax[which_plot].set_xlabel("x location")
+            ax[which_plot].set_ylabel("y location")
+
+        f.colorbar(cb)
+        f.suptitle("The effects of sweeping one detector with all other fixed")
+        plt.show()
+
+    def optimize(self, sources, bounds, initialization, visualize=True):
         """
         sources : ArrayLike
             list of (x, y, time) tuples
@@ -275,13 +328,18 @@ class SDOptimizer():
         """
         expanded_bounds = []
         for i in range(0, len(initialization), 2):
-            expanded_bounds.extend([(bounds[0], bounds[1]), (bounds[2], bounds[3])])
+            expanded_bounds.extend(
+                [(bounds[0], bounds[1]), (bounds[2], bounds[3])])
         print("The bounds are now {}".format(expanded_bounds))
         total_ret_func = self.make_total_lookup_function(sources)
         res = minimize(total_ret_func, initialization, method='COBYLA')
+        if visualize:
+            self.visualize_all(total_ret_func, res.x, bounds)
+            self.plot_inputs(sources, res.x)
         return res
 
-if __name__ == "__main__": # Only run if this was run from the commmand line
+
+if __name__ == "__main__":  # Only run if this was run from the commmand line
     SDO = SDOptimizer()
     SDO.load_data(DATA_FILE)  # Load the data file
     X1, Y1, time_to_alarm1 = SDO.get_time_to_alarm(False)
