@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import pdb
 import scipy
+import logging
 from scipy.optimize import minimize, rosen, rosen_der, fmin_l_bfgs_b
 from scipy.interpolate import griddata
 
@@ -24,6 +25,8 @@ class SDOptimizer():
         self.VISUALIZE = VISUALIZE
         self.ALARM_THRESHOLD = ALARM_THRESHOLD
         self.BIG_NUMBER = BIG_NUMBER
+        self.logger = logging.getLogger('main')
+        self.logger.debug("Instantiated the optimizer")
 
     def load_data(self, data_file):
         # This is a doubly-nested list with each internal list representing a
@@ -34,9 +37,8 @@ class SDOptimizer():
                 if "symmetry" in line:
                     all_points.append([line])
                 all_points[-1].append(line)
-        print("The number of timesteps is {}".format(len(all_points)))
+        self.logger.info("The number of timesteps is {}".format(len(all_points)))
 
-        plt.cla()
         self.all_times = []
         self.max_consentrations = []
 
@@ -84,12 +86,12 @@ class SDOptimizer():
             if show:
                 plt.show()
 
-    def get_time_to_alarm(self, flip_x=False, flip_y=False):
+    def get_time_to_alarm(self, flip_x=False, flip_y=False, visualize=False):
         """The flips are just for data augmentation to create more example data
         """
         consentrations = np.asarray(
             [x['C'].values for x in self.all_times])  # Get all of the consentrations
-        print("There are {} timesteps and {} flattened locations".format(
+        self.logger.info("There are {} timesteps and {} flattened locations".format(
             consentrations.shape[0], consentrations.shape[1]))
 
         # Determine which entries have higher consentrations
@@ -122,14 +124,15 @@ class SDOptimizer():
         else:
             Y = self.Y
 
-        plt.cla()
-        plt.clf()
-        plt.xlabel("X position")
-        plt.ylabel("Y position")
-        plt.title("Time to alarm")
-        norm = mpl.colors.Normalize(vmin=0, vmax=BIG_NUMBER)
-        cb = plt.scatter(X, Y, c=time_to_alarm, cmap=plt.cm.inferno, norm=norm)
-        plt.colorbar(cb)  # Add a colorbar to a plot
+        if visualize:
+            plt.cla()
+            plt.clf()
+            plt.xlabel("X position")
+            plt.ylabel("Y position")
+            plt.title("Time to alarm")
+            norm = mpl.colors.Normalize(vmin=0, vmax=BIG_NUMBER)
+            cb = plt.scatter(X, Y, c=time_to_alarm, cmap=plt.cm.inferno, norm=norm)
+            plt.colorbar(cb)  # Add a colorbar to a plot
         return (X, Y, time_to_alarm)
 
     def example_time_to_alarm(self, x_bounds, y_bounds,
@@ -164,7 +167,7 @@ class SDOptimizer():
         best = np.argmin(
             time_to_alarm)  # get the location of the shortest time to alarm
         XY = np.vstack((X, Y)).transpose()  # combine the x and y data points
-        print("The best time, determined by exaustive search, is {} and occurs at {}".format(
+        self.logger.info("The best time, determined by exaustive search, is {} and occurs at {}".format(
             time_to_alarm[best], XY[best, :]))
         EPSILON = 0.00000001
 
@@ -219,9 +222,9 @@ class SDOptimizer():
         plt.clf()
         f, ax = plt.subplots(1, len(inputs))
         for i, (x, y, z) in enumerate(inputs):
-            ax[i].scatter(x, y, c=z)
+            ax[i].scatter(x, y, c=z, cmap=plt.cm.inferno)
             for j in range(0, len(optimized), 2):
-                ax[i].scatter(optimized[j], optimized[j + 1], c='w')
+                ax[i].scatter(optimized[j], optimized[j + 1], c='w', edgecolors='k')
         plt.show()
 
     def plot_sweep(self, xytimes, fixed_detectors, bounds, centers=None):
@@ -261,34 +264,46 @@ class SDOptimizer():
         plt.title("Effects of placing the last detector with {} fixed".format(int(len(fixed_detectors)/2)))
         plt.show()
 
+    def optimize(self, sources, bounds, initialization):
+        """
+        sources : ArrayLike
+            list of (x, y, time) tuples
+        bounds : ArrayLike
+            [x_low, x_high, y_low, y_high]
+        initialization : ArrayLike
+            [x1, y1, x2, y2,...] The initial location for the optimization
+        """
+        expanded_bounds = []
+        for i in range(0, len(initialization), 2):
+            expanded_bounds.extend([(bounds[0], bounds[1]), (bounds[2], bounds[3])])
+        print("The bounds are now {}".format(expanded_bounds))
+        total_ret_func = self.make_total_lookup_function(sources)
+        res = minimize(total_ret_func, initialization, method='COBYLA')
+        return res
 
-SDO = SDOptimizer()
-SDO.load_data(DATA_FILE)  # Load the data file
-X1, Y1, time_to_alarm1 = SDO.get_time_to_alarm(False)
-X2, Y2, time_to_alarm2 = SDO.example_time_to_alarm(
-    (0, 1), (0, 1), (0.3, 0.7), False)
-ret_func = SDO.make_lookup(X1, Y1, time_to_alarm1)
-total_ret_func = SDO.make_total_lookup_function(
-    [(X1, Y1, time_to_alarm1), (X2, Y2, time_to_alarm2)])
+if __name__ == "__main__": # Only run if this was run from the commmand line
+    SDO = SDOptimizer()
+    SDO.load_data(DATA_FILE)  # Load the data file
+    X1, Y1, time_to_alarm1 = SDO.get_time_to_alarm(False)
+    X2, Y2, time_to_alarm2 = SDO.example_time_to_alarm(
+        (0, 1), (0, 1), (0.3, 0.7), False)
+    ret_func = SDO.make_lookup(X1, Y1, time_to_alarm1)
+    total_ret_func = SDO.make_total_lookup_function(
+        [(X1, Y1, time_to_alarm1), (X2, Y2, time_to_alarm2)])
 
-CENTERS = [0.2, 0.8, 0.8, 0.8, 0.8, 0.2]
+    CENTERS = [0.2, 0.8, 0.8, 0.8, 0.8, 0.2]
 
-x1, y1, z1 = SDO.example_time_to_alarm([0, 1], [0, 1], CENTERS[0:2], False)
-x2, y2, z2 = SDO.example_time_to_alarm([0, 1], [0, 1], CENTERS[2:4], False)
-x3, y3, z3 = SDO.example_time_to_alarm([0, 1], [0, 1], CENTERS[4:6], False)
-inputs = [(x1, y1, z1), (x2, y2, z2), (x3, y3, z3)]
+    x1, y1, z1 = SDO.example_time_to_alarm([0, 1], [0, 1], CENTERS[0:2], False)
+    x2, y2, z2 = SDO.example_time_to_alarm([0, 1], [0, 1], CENTERS[2:4], False)
+    x3, y3, z3 = SDO.example_time_to_alarm([0, 1], [0, 1], CENTERS[4:6], False)
+    inputs = [(x1, y1, z1), (x2, y2, z2), (x3, y3, z3)]
 
-total_ret_func = SDO.make_total_lookup_function(inputs)
-BOUNDS = ((0, 1), (0, 1), (0, 1), (0, 1))  # constraints on inputs
-INIT = (0.51, 0.52, 0.47, 0.6, 0.55, 0.67)
-res = minimize(total_ret_func, INIT, method='COBYLA')
-print(res)
-x = res.x
+    total_ret_func = SDO.make_total_lookup_function(inputs)
+    BOUNDS = ((0, 1), (0, 1), (0, 1), (0, 1))  # constraints on inputs
+    INIT = (0.51, 0.52, 0.47, 0.6, 0.55, 0.67)
+    res = minimize(total_ret_func, INIT, method='COBYLA')
+    print(res)
+    x = res.x
 
-#SDO.plot_inputs(inputs, x)
-SDO.plot_sweep(inputs, [0.1, 0.0, 0.0, 0.3][2:], [0, 1, 0, 1], CENTERS)
-
-# BOUNDS = ((0, 8), (0, 3))  # constraints on inputs
-#INIT = (1.70799994 + 0.1, 1.89999998)
-#res = minimize(ret_func, INIT, method='S', bounds=BOUNDS)
-# print(res)
+    #SDO.plot_inputs(inputs, x)
+    #SDO.plot_sweep(inputs, [0.1, 0.0, 0.0, 0.3][2:], [0, 1, 0, 1], CENTERS)
