@@ -275,7 +275,7 @@ class SDOptimizer():
             int(len(fixed_detectors)/2)))
         plt.show()
 
-    def pmesh_plot(self, xs, ys, values, plotter):
+    def pmesh_plot(self, xs, ys, values, plotter, cmap=plt.cm.inferno):
         points = np.stack((xs, ys), axis=1)
         sample_points = (np.linspace(min(xs), max(xs)), np.linspace(min(ys), max(ys)))
         xis, yis = np.meshgrid(*sample_points)
@@ -283,10 +283,10 @@ class SDOptimizer():
         flattened_yis = yis.flatten()
         interpolated = griddata(points, values, (flattened_xis, flattened_yis))
         reshaped_interpolated = np.reshape(interpolated, xis.shape)
-        cb = plotter.pcolormesh(xis, yis, reshaped_interpolated, cmap=plt.cm.inferno)
+        cb = plotter.pcolormesh(xis, yis, reshaped_interpolated, cmap=cmap)
         return cb # return the colorbar
 
-    def visualize_all(self, objective_func, optimized_detectors, bounds, num_samples=30):
+    def visualize_all(self, objective_func, optimized_detectors, bounds, num_samples=30, verbose=False):
         """
         The goal is to do a sweep with each of the detectors leaving the others fixed
         """
@@ -303,7 +303,7 @@ class SDOptimizer():
         # create the subplots
         plt.cla()
         plt.clf()
-        f, ax = plt.subplots(1, int(len(optimized_detectors)/2))
+        f, ax = plt.subplots(int(len(optimized_detectors)/2), 1)
 
         num_samples = grid.shape[0]
 
@@ -322,14 +322,16 @@ class SDOptimizer():
                 which_plot = ax
 
             cb = self.pmesh_plot(grid_xs, grid_ys, times, which_plot)
+            plt.colorbar(cb, ax=which_plot)
 
             fixed = which_plot.scatter(
                 selected_detectors[::2], selected_detectors[1::2], c='w', edgecolors='k')
-            which_plot.legend([fixed], ["the fixed detectors"])
-            which_plot.set_xlabel("x location")
-            which_plot.set_ylabel("y location")
 
-        f.colorbar(cb)
+            if verbose:
+                which_plot.legend([fixed], ["the fixed detectors"])
+                which_plot.set_xlabel("x location")
+                which_plot.set_ylabel("y location")
+
         f.suptitle("The effects of sweeping one detector with all other fixed")
         plt.show()
 
