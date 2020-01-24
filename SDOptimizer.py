@@ -10,13 +10,14 @@ import matplotlib as mpl
 import pdb
 import scipy
 import logging
-from scipy.optimize import minimize, rosen, rosen_der, fmin_l_bfgs_b
+from scipy.optimize import minimize, differential_evolution, rosen, rosen_der, fmin_l_bfgs_b
 from scipy.interpolate import griddata
 
 DATA_FILE = "exportUSLab.csv"  # Points to the data Katie gave us
 VISUALIZE = False
-ALARM_THRESHOLD = 2e-20
+ALARM_THRESHOLD = 4e-20
 BIG_NUMBER = 100
+INFEASIBLE_VALUE = BIG_NUMBER * 1.5
 
 
 class SDOptimizer():
@@ -87,8 +88,9 @@ class SDOptimizer():
             if show:
                 plt.show()
 
-    def get_time_to_alarm(self, flip_x=False, flip_y=False, visualize=False):
+    def get_time_to_alarm(self, flip_x=False, flip_y=False, infeasible_locations=None, alarm_threshold=ALARM_THRESHOLD, visualize=False):
         """The flips are just for data augmentation to create more example data
+        infeasible_locations is an array of tuples where each one represents an object [(x1, y1, x2, y2),....]
         """
         consentrations = np.asarray(
             [x['C'].values for x in self.all_times])  # Get all of the consentrations
@@ -96,7 +98,7 @@ class SDOptimizer():
             consentrations.shape[0], consentrations.shape[1]))
 
         # Determine which entries have higher consentrations
-        alarmed = consentrations > 2 * self.ALARM_THRESHOLD
+        alarmed = consentrations > alarm_threshold
         nonzero = np.nonzero(alarmed)  # determine where the non zero entries
         # this is pairs indicating that it alarmed at that time and location
         nonzero_times, nonzero_locations = nonzero
@@ -125,16 +127,17 @@ class SDOptimizer():
         else:
             Y = self.Y
 
+        if infeasible_locations is not None:
+            for infeasible in infeasible_locations:
+                x1, y1, x2, y2 = infeasible
+                infeasible_locations = np.logical_and(np.logical_and(X > x1, X < x2), np.logical_and(Y > y1, Y < y2))
+                which_infeasible = np.nonzero(infeasible_locations)
+                time_to_alarm[which_infeasible] = INFEASIBLE_VALUE
+
         if visualize:
-            plt.cla()
-            plt.clf()
-            plt.xlabel("X position")
-            plt.ylabel("Y position")
-            plt.title("Time to alarm")
-            norm = mpl.colors.Normalize(vmin=0, vmax=BIG_NUMBER)
-            cb = plt.scatter(X, Y, c=time_to_alarm,
-                             cmap=plt.cm.inferno, norm=norm)
+            cb = self.pmesh_plot(X, Y, time_to_alarm, plt, num_samples=70)
             plt.colorbar(cb)  # Add a colorbar to a plot
+            plt.title("Time to alarm versus location on the wall")
         return (X, Y, time_to_alarm)
 
     def example_time_to_alarm(self, x_bounds, y_bounds,
@@ -222,9 +225,10 @@ class SDOptimizer():
     def plot_inputs(self, inputs, optimized):
         plt.cla()
         plt.clf()
-        f, ax = plt.subplots(1, len(inputs))
+        f, ax = self.get_square_axis(len(inputs))
+        max_z = 0
         for i, (x, y, z) in enumerate(inputs):
-            #ax[i].scatter(x, y, c=z, cmap=plt.cm.inferno)
+            max_z = max(max_z, max(z)) # record this for later plotting
             cb = self.pmesh_plot(x, y, z, ax[i])
             for j in range(0, len(optimized), 2):
                 detectors = ax[i].scatter(optimized[j], optimized[j + 1],
@@ -233,8 +237,24 @@ class SDOptimizer():
         f.colorbar(cb)
         f.suptitle("The time to alarm for each of the smoke sources")
         plt.show()
+        return max_z
 
-    def plot_sweep(self, xytimes, fixed_detectors, bounds, centers=None):
+    def get_square_axis(self, num):
+        """
+        arange subplots in a rough square based on the number of inputs
+        """
+        if num == 1:
+            f, ax = plt.subplots(1,1)
+            ax = np.asarray([ax])
+            return f, ax
+        num_x = np.ceil(np.sqrt(num))
+        num_y = np.ceil(num / num_x)
+        f, ax = plt.subplots(int(num_y), int(num_x))
+        ax = ax.flatten() #
+        return f, ax
+
+
+    def plot_sweep(self, xytimes, fixed_detectors, bounds, max_val=None, centers=None):
         """
         xytimes : ArrayLike[Tuple[]]
             the smoke propagation information
@@ -261,7 +281,7 @@ class SDOptimizer():
         plt.cla()
         plt.clf()
 
-        cb = self.pmesh_plot(grid_xs, grid_ys, times, plt)
+        cb = self.pmesh_plot(grid_xs, grid_ys, times, plt, max_val)
         # even and odd points
         fixed = plt.scatter(fixed_detectors[::2], fixed_detectors[1::2], c='k')
         plt.colorbar(cb)  # Add a colorbar to a plot
@@ -275,18 +295,23 @@ class SDOptimizer():
             int(len(fixed_detectors)/2)))
         plt.show()
 
-    def pmesh_plot(self, xs, ys, values, plotter, cmap=plt.cm.inferno):
+    def pmesh_plot(self, xs, ys, values, plotter, max_val=None, num_samples=50, cmap=plt.cm.inferno):
         points = np.stack((xs, ys), axis=1)
-        sample_points = (np.linspace(min(xs), max(xs)), np.linspace(min(ys), max(ys)))
+        sample_points = (np.linspace(min(xs), max(xs), num_samples), np.linspace(min(ys), max(ys), num_samples))
         xis, yis = np.meshgrid(*sample_points)
         flattened_xis = xis.flatten()
         flattened_yis = yis.flatten()
         interpolated = griddata(points, values, (flattened_xis, flattened_yis))
         reshaped_interpolated = np.reshape(interpolated, xis.shape)
-        cb = plotter.pcolormesh(xis, yis, reshaped_interpolated, cmap=cmap)
+        if max_val is not None:
+            norm = mpl.colors.Normalize(0, max_val)
+        else:
+            norm = mpl.colors.Normalize() # default
+
+        cb = plotter.pcolormesh(xis, yis, reshaped_interpolated, cmap=cmap, norm=norm)
         return cb # return the colorbar
 
-    def visualize_all(self, objective_func, optimized_detectors, bounds, num_samples=30, verbose=False):
+    def visualize_all(self, objective_func, optimized_detectors, bounds, max_val=None, num_samples=30, verbose=False):
         """
         The goal is to do a sweep with each of the detectors leaving the others fixed
         """
@@ -303,7 +328,8 @@ class SDOptimizer():
         # create the subplots
         plt.cla()
         plt.clf()
-        f, ax = plt.subplots(int(len(optimized_detectors)/2), 1)
+        #f, ax = plt.subplots(int(len(optimized_detectors)/2), 1)
+        f, ax = self.get_square_axis(len(optimized_detectors)/2)
 
         num_samples = grid.shape[0]
 
@@ -321,8 +347,7 @@ class SDOptimizer():
             else:
                 which_plot = ax
 
-            cb = self.pmesh_plot(grid_xs, grid_ys, times, which_plot)
-            plt.colorbar(cb, ax=which_plot)
+            cb = self.pmesh_plot(grid_xs, grid_ys, times, which_plot, max_val)
 
             fixed = which_plot.scatter(
                 selected_detectors[::2], selected_detectors[1::2], c='w', edgecolors='k')
@@ -333,9 +358,10 @@ class SDOptimizer():
                 which_plot.set_ylabel("y location")
 
         f.suptitle("The effects of sweeping one detector with all other fixed")
+        plt.colorbar(cb, ax=ax[-1])
         plt.show()
 
-    def optimize(self, sources, bounds, initialization, visualize=True):
+    def optimize(self, sources, bounds, initialization, genetic=True, visualize=True):
         """
         sources : ArrayLike
             list of (x, y, time) tuples
@@ -350,10 +376,25 @@ class SDOptimizer():
                 [(bounds[0], bounds[1]), (bounds[2], bounds[3])])
         print("The bounds are now {}".format(expanded_bounds))
         total_ret_func = self.make_total_lookup_function(sources)
-        res = minimize(total_ret_func, initialization, method='COBYLA')
+        values = []
+        # TODO see if there's a more efficient way to do this
+        def callback(xk, convergence): # make the callback to record the values of the function
+            val = total_ret_func(xk) # the objective function
+            values.append(val)
+
+        if genetic:
+            res = differential_evolution(total_ret_func, expanded_bounds, callback=callback)
+        else:
+            res = minimize(total_ret_func, initialization, method='COBYLA', callback=callback)
+
         if visualize:
-            self.visualize_all(total_ret_func, res.x, bounds)
-            self.plot_inputs(sources, res.x)
+            plt.title("Objective function values over time")
+            plt.xlabel("Number of function evaluations")
+            plt.ylabel("Objective function")
+            plt.plot(values)
+            plt.show()
+            max_val = self.plot_inputs(sources, res.x)
+            self.visualize_all(total_ret_func, res.x, bounds, max_val=max_val)
         xs = res.x
         output = "The locations are: "
         for i in range(0, xs.shape[0], 2):
