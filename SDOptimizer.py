@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import matplotlib.animation as animation
 import scipy
+import pdb
 import logging
 import glob
 import os
@@ -176,6 +177,16 @@ class SDOptimizer():
             cb = self.pmesh_plot(X, Y, time_to_alarm, plt, num_samples=70)
             plt.colorbar(cb)  # Add a colorbar to a plot
             plt.title("Time to alarm versus location on the wall")
+            plt.show()
+            samples = np.random.choice(consentrations.shape[1], 10)
+            rows = consentrations[:,samples].transpose()
+            for row in rows:
+                plt.plot(row)
+            plt.title("random samples of consentration over time")
+            plt.xlabel("timesteps")
+            plt.ylabel("consentration")
+            plt.show()
+
         return (X, Y, time_to_alarm)
 
     def example_time_to_alarm(self, x_bounds, y_bounds,
@@ -226,7 +237,7 @@ class SDOptimizer():
             else:
                 diff = xy - XY  # get the x and y distances from the query point for each marked point
                 dist = np.linalg.norm(diff, axis=1)
-                locs = np.argsort(dist)[:4]
+                locs = np.argsort(dist)[:1]
                 # weight by one over the distance to the sample point
                 weights = 1.0 / (dist[locs] + EPSILON)
                 reweighted = weights * time_to_alarm[locs]
@@ -503,6 +514,8 @@ class SDOptimizer():
             plt.show()
             for loc in locs:
                 self.plot_xy(loc)
+            plt.xlim(0, 8.1)
+            plt.ylim(0, 3)
             plt.show()
         return vals, locs
 
