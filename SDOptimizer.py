@@ -501,10 +501,13 @@ class SDOptimizer():
             plt.scatter(np.zeros_like(vals), vals)
             plt.ylabel("objective function values") # TODO make this a histogram
             plt.show()
+            for loc in locs:
+                self.plot_xy(loc)
+            plt.show()
         return vals, locs
 
     def plot_xy(self, xy):
-        pass
+        plt.scatter(xy[::2], xy[1::2])
 
 
 if __name__ == "__main__":  # Only run if this was run from the commmand line
