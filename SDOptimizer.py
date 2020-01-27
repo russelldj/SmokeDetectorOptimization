@@ -10,8 +10,11 @@ import matplotlib as mpl
 import pdb
 import scipy
 import logging
+import glob
+import os
 from scipy.optimize import minimize, differential_evolution, rosen, rosen_der, fmin_l_bfgs_b
 from scipy.interpolate import griddata
+
 
 DATA_FILE = "exportUSLab.csv"  # Points to the data Katie gave us
 VISUALIZE = False
@@ -30,6 +33,7 @@ class SDOptimizer():
         self.logger.debug("Instantiated the optimizer")
 
     def load_data(self, data_file):
+        # TODO make it so that I can read in a whole directory
         # This is a doubly-nested list with each internal list representing a
         # single timestep
         all_points = [[]]
@@ -64,6 +68,21 @@ class SDOptimizer():
         self.X = df['X'].values
         self.Y = df['Y'].values
 
+    def load_directory(self, directory):
+        """
+        directory : String
+            The folder containing the data files
+        -----returns-----
+        data : List[Tuple[ArrayLike]]
+            This is the the x, y, time to alarm data for each data file
+        """
+        files_pattern = os.path.join(directory, "*")
+        files = glob.glob(files_pattern) # this should match all files in the directory
+        data = []
+        for file in files:
+            data.append(self.load_data(file))
+        return data
+
     def visualize(self, show=False):
         print(self.max_consentrations)
         max_consentration = max(self.max_consentrations)
@@ -89,8 +108,15 @@ class SDOptimizer():
                 plt.show()
 
     def get_time_to_alarm(self, flip_x=False, flip_y=False, infeasible_locations=None, alarm_threshold=ALARM_THRESHOLD, visualize=False):
-        """The flips are just for data augmentation to create more example data
-        infeasible_locations is an array of tuples where each one represents an object [(x1, y1, x2, y2),....]
+        """
+        file_x, flip_y : Boolean
+            Should the data be flipped about the corresponding axis for augmentation
+        infeasible_locations : ArrayLike[Tuple[Float]]
+            An array of tuples where each one represents an object [(x1, y1, x2, y2),....]
+        alarm_threshold : Float
+            What consentraion will trigger the detector
+        visualize : Boolean
+            Should it be shown
         """
         consentrations = np.asarray(
             [x['C'].values for x in self.all_times])  # Get all of the consentrations
@@ -166,7 +192,12 @@ class SDOptimizer():
         return (x, y, z)
 
     def make_lookup(self, X, Y, time_to_alarm):
-        """Returns a function which searches
+        """
+        X, Y : ArrayLike[Float]
+            The x, y locations of the data points from the simulation
+        time_to_alarm : ArrayLike[Float]
+            The time to alarm corresponding to each of the locations
+        -----returns-----
         the data at the sample nearest a given point
         """
         best = np.argmin(
@@ -177,29 +208,47 @@ class SDOptimizer():
         EPSILON = 0.00000001
 
         def ret_func(xy):  # this is what will be returned
-            diff = xy - XY  # get the x and y distances from the query point for each marked point
-            dist = np.linalg.norm(diff, axis=1)
-            locs = np.argsort(dist)[:4]
-            # weight by one over the distance to the sample point
-            weights = 1.0 / (dist[locs] + EPSILON)
-            reweighted = weights * time_to_alarm[locs]
-            closest_time = sum(reweighted) / sum(weights)
-            #f = interpolate.interp2d(X, Y, time_to_alarm)
+            if False:
+                closest_time = griddata(XY, time_to_alarm, xy)
+                print(closest_time)
+            else:
+                diff = xy - XY  # get the x and y distances from the query point for each marked point
+                dist = np.linalg.norm(diff, axis=1)
+                locs = np.argsort(dist)[:4]
+                # weight by one over the distance to the sample point
+                weights = 1.0 / (dist[locs] + EPSILON)
+                reweighted = weights * time_to_alarm[locs]
+                closest_time = sum(reweighted) / sum(weights)
             return closest_time
         return ret_func
 
-    def make_total_lookup_function(self, xytimes):
+    def make_total_lookup_function(self, xytimes, verbose=False, type="worst_case"):
         """
-        This takes as input a list of tuples in the form [(x, y, times), (x, y, times), ....] coresponding to the different smokes sources
-        it returns a function mapping [x1, y1, x2, y2, ....], represnting the x, y coordinates of each detector,to the objective function value
+        This function creates and returns the function which will be optimized
+        -----inputs------
+        xytimes : ArrayLike[Tuple[ArrayLike[Float]]]
+            A list of tuples in the form [(x, y, times), (x, y, times), ....] coresponding to the different smokes sources
+        verbose : Boolean
+            print information during functinon evaluations
+        type : String
+            In the future I will implement other variations
+        -----returns-----
+        ret_func : Function[ArrayLike[Float] -> Float]
+            This is the function which will eventually be optimized and it maps from the smoke detector locations to the time to alarm
+            A function mapping [x1, y1, x2, y2, ....], represnting the x, y coordinates of each detector,to the objective function value
         """
+        # Create data which will be used inside of the function to be returned
         funcs = []
         for x, y, times in xytimes:
-            funcs.append(self.make_lookup(x, y, times))
+            funcs.append(self.make_lookup(x, y, times)) # create all of the functions mapping from a location to a time
 
-        def ret_func(xys, verbose=False):
+        def ret_func(xys):
             """
-            xys represents the x, y location of each of the smoke detectors
+            xys : ArrayLike
+                Represents the x, y location of each of the smoke detectors as [x1, y1, x2, y2]
+            -----returns-----
+            worst_source : Float
+                The objective function for the input
             """
             all_times = []  # each internal list coresponds to a smoke detector location
             for i in range(0, len(xys), 2):
@@ -296,6 +345,9 @@ class SDOptimizer():
         plt.show()
 
     def pmesh_plot(self, xs, ys, values, plotter, max_val=None, num_samples=50, cmap=plt.cm.inferno):
+        """
+        conveneince function to easily plot the sort of data we have
+        """
         points = np.stack((xs, ys), axis=1)
         sample_points = (np.linspace(min(xs), max(xs), num_samples), np.linspace(min(ys), max(ys), num_samples))
         xis, yis = np.meshgrid(*sample_points)
