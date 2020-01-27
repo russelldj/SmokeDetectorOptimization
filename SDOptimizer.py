@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 # coding: utf-8
-
 import io
 import pandas as pd
 import numpy as np
@@ -20,6 +19,7 @@ VISUALIZE = False
 ALARM_THRESHOLD = 4e-20
 BIG_NUMBER = 100
 INFEASIBLE_VALUE = BIG_NUMBER * 1.5
+
 
 class SDOptimizer():
     def __init__(self):
@@ -74,7 +74,8 @@ class SDOptimizer():
             This is the the x, y, time to alarm data for each data file
         """
         files_pattern = os.path.join(directory, "*")
-        files = glob.glob(files_pattern) # this should match all files in the directory
+        # this should match all files in the directory
+        files = glob.glob(files_pattern)
         data = []
         for file in files:
             data.append(self.load_data(file))
@@ -109,7 +110,13 @@ class SDOptimizer():
             if show:
                 plt.show()
 
-    def get_time_to_alarm(self, flip_x=False, flip_y=False, infeasible_locations=None, alarm_threshold=ALARM_THRESHOLD, visualize=False):
+    def get_time_to_alarm(
+            self,
+            flip_x=False,
+            flip_y=False,
+            infeasible_locations=None,
+            alarm_threshold=ALARM_THRESHOLD,
+            visualize=False):
         """
         file_x, flip_y : Boolean
             Should the data be flipped about the corresponding axis for augmentation
@@ -122,8 +129,10 @@ class SDOptimizer():
         """
         consentrations = np.asarray(
             [x['C'].values for x in self.all_times])  # Get all of the consentrations
-        self.logger.info("There are {} timesteps and {} flattened locations".format(
-            consentrations.shape[0], consentrations.shape[1]))
+        self.logger.info(
+            "There are {} timesteps and {} flattened locations".format(
+                consentrations.shape[0],
+                consentrations.shape[1]))
 
         # Determine which entries have higher consentrations
         alarmed = consentrations > alarm_threshold
@@ -211,7 +220,7 @@ class SDOptimizer():
         EPSILON = 0.00000001
 
         def ret_func(xy):  # this is what will be returned
-            if False:
+            if False:#TODO this should be True
                 closest_time = griddata(XY, time_to_alarm, xy)
                 print(closest_time)
             else:
@@ -225,7 +234,11 @@ class SDOptimizer():
             return closest_time
         return ret_func
 
-    def make_total_lookup_function(self, xytimes, verbose=False, type="worst_case"):
+    def make_total_lookup_function(
+            self,
+            xytimes,
+            verbose=False,
+            type="worst_case"):
         """
         This function creates and returns the function which will be optimized
         -----inputs------
@@ -243,7 +256,8 @@ class SDOptimizer():
         # Create data which will be used inside of the function to be returned
         funcs = []
         for x, y, times in xytimes:
-            funcs.append(self.make_lookup(x, y, times)) # create all of the functions mapping from a location to a time
+            # create all of the functions mapping from a location to a time
+            funcs.append(self.make_lookup(x, y, times))
 
         def ret_func(xys):
             """
@@ -347,7 +361,15 @@ class SDOptimizer():
             int(len(fixed_detectors) / 2)))
         plt.show()
 
-    def pmesh_plot(self, xs, ys, values, plotter, max_val=None, num_samples=50, cmap=plt.cm.inferno):
+    def pmesh_plot(
+            self,
+            xs,
+            ys,
+            values,
+            plotter,
+            max_val=None,
+            num_samples=50,
+            cmap=plt.cm.inferno):
         """
         conveneince function to easily plot the sort of data we have
         """
@@ -428,13 +450,15 @@ class SDOptimizer():
             [x_low, x_high, y_low, y_high]
         initialization : ArrayLike
             [x1, y1, x2, y2,...] The initial location for the optimization
+        genetic : Boolean
+            whether to use a genetic algorithm
         """
         expanded_bounds = []
         for i in range(0, len(initialization), 2):
             expanded_bounds.extend(
-                [(bounds[0], bounds[1]), (bounds[2], bounds[3])])
+                [(bounds[0], bounds[1]), (bounds[2], bounds[3])]) # set up the appropriate number of bounds
         print("The bounds are now {}".format(expanded_bounds))
-        total_ret_func = self.make_total_lookup_function(sources)
+        total_ret_func = self.make_total_lookup_function(sources) # the function to be optimized
         values = []
         # TODO see if there's a more efficient way to do this
 
@@ -443,7 +467,7 @@ class SDOptimizer():
             values.append(val)
 
         if genetic:
-            res = differential_evolution(
+            res = differential_evolution( # this is a genetic algorithm implementation
                 total_ret_func, expanded_bounds, callback=callback)
         else:
             res = minimize(total_ret_func, initialization,
@@ -463,6 +487,24 @@ class SDOptimizer():
             output += ("({:.3f}, {:.3f}), ".format(xs[i], xs[i + 1]))
         print(output)
         return res
+
+    def evaluate_optimization(self, sources, bounds, initialization,
+                 genetic=True, visualize=True, num_iterations=10):
+        vals = []
+        locs = []
+        for i in range(num_iterations):
+            res = self.optimize(sources, bounds, initialization, genetic=genetic, visualize=False)
+            vals.append(res.fun)
+            locs.append(res.x)
+
+        if visualize:
+            plt.scatter(np.zeros_like(vals), vals)
+            plt.ylabel("objective function values") # TODO make this a histogram
+            plt.show()
+        return vals, locs
+
+    def plot_xy(self, xy):
+        pass
 
 
 if __name__ == "__main__":  # Only run if this was run from the commmand line
