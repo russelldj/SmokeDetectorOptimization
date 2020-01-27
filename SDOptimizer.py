@@ -1,13 +1,12 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-import pdb
 import io
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-import pdb
+import matplotlib.animation as animation
 import scipy
 import logging
 from scipy.optimize import minimize, differential_evolution, rosen, rosen_der, fmin_l_bfgs_b
@@ -19,17 +18,16 @@ ALARM_THRESHOLD = 4e-20
 BIG_NUMBER = 100
 INFEASIBLE_VALUE = BIG_NUMBER * 1.5
 
-
 class SDOptimizer():
     def __init__(self):
-        self.DATA_FILE = DATA_FILE
-        self.VISUALIZE = VISUALIZE
-        self.ALARM_THRESHOLD = ALARM_THRESHOLD
-        self.BIG_NUMBER = BIG_NUMBER
         self.logger = logging.getLogger('main')
         self.logger.debug("Instantiated the optimizer")
 
     def load_data(self, data_file):
+        """
+        data_file : string
+            This is the path to the data file as exported by the Fluent simulation
+        """
         # This is a doubly-nested list with each internal list representing a
         # single timestep
         all_points = [[]]
@@ -65,9 +63,14 @@ class SDOptimizer():
         self.Y = df['Y'].values
 
     def visualize(self, show=False):
+        """
+        TODO update this so it outputs a video
+        """
         print(self.max_consentrations)
         max_consentration = max(self.max_consentrations)
         print(max_consentration)
+
+        ims = []
 
         for i, df in enumerate(self.all_times):
             plt.cla()
@@ -76,19 +79,29 @@ class SDOptimizer():
             plt.ylabel("Y position")
             plt.title("consentration at timestep {} versus position".format(i))
             norm = mpl.colors.Normalize(vmin=0, vmax=1.0)
-            cb = plt.scatter(
-                df['X'],
-                df['Y'],
-                c=df['C'] /
-                max_consentration,
-                cmap=plt.cm.inferno,
-                norm=norm)
-            plt.colorbar(cb)  # Add a colorbar to a plot
-            plt.savefig("vis/consentration{:03d}.png".format(i))
-            if show:
-                plt.show()
+            #cb = self.pmesh_plot(df['X'], df['Y'], df['C'], plt, max_val=max_consentration)
+            #ims.append((cb,)) # I'm not sure why this needs to be a one-length tuple
+            ims.append((plt.scatter([1, 2], [2, 3]),))
+            #cb = plt.scatter(
+            #    df['X'],
+            #    df['Y'],
+            #    c=df['C'] /
+            #    max_consentration,
+            #    cmap=plt.cm.inferno,
+            #    norm=norm)
+            #plt.colorbar(cb)  # Add a colorbar to a plot
+            #plt.savefig("vis/consentration{:03d}.png".format(i))
+            #if show:
+            #    plt.show()
+        im_ani = animation.ArtistAnimation(plt.figure(), ims, interval=50, repeat_delay=3000, blit=True)
+        #im_ani = animation.ArtistAnimation(plt.figure(), ims, interval=50, repeat_delay=3000,
+        #                           blit=True)
+        Writer = animation.writers['ffmpeg']
+        writer = Writer(fps=15, metadata=dict(artist='Optimization'), bitrate=1800)
+        im_ani.save('smoke_vis.mp4', writer=writer)
 
-    def get_time_to_alarm(self, flip_x=False, flip_y=False, infeasible_locations=None, alarm_threshold=ALARM_THRESHOLD, visualize=False):
+    def get_time_to_alarm(self, flip_x=False, flip_y=False, infeasible_locations=None,
+                          alarm_threshold=ALARM_THRESHOLD, visualize=False):
         """The flips are just for data augmentation to create more example data
         infeasible_locations is an array of tuples where each one represents an object [(x1, y1, x2, y2),....]
         """
@@ -130,7 +143,8 @@ class SDOptimizer():
         if infeasible_locations is not None:
             for infeasible in infeasible_locations:
                 x1, y1, x2, y2 = infeasible
-                infeasible_locations = np.logical_and(np.logical_and(X > x1, X < x2), np.logical_and(Y > y1, Y < y2))
+                infeasible_locations = np.logical_and(np.logical_and(
+                    X > x1, X < x2), np.logical_and(Y > y1, Y < y2))
                 which_infeasible = np.nonzero(infeasible_locations)
                 time_to_alarm[which_infeasible] = INFEASIBLE_VALUE
 
@@ -228,11 +242,11 @@ class SDOptimizer():
         f, ax = self.get_square_axis(len(inputs))
         max_z = 0
         for i, (x, y, z) in enumerate(inputs):
-            max_z = max(max_z, max(z)) # record this for later plotting
+            max_z = max(max_z, max(z))  # record this for later plotting
             cb = self.pmesh_plot(x, y, z, ax[i])
             for j in range(0, len(optimized), 2):
                 detectors = ax[i].scatter(optimized[j], optimized[j + 1],
-                              c='w', edgecolors='k')
+                                          c='w', edgecolors='k')
                 ax[i].legend([detectors], ["optimized detectors"])
         f.colorbar(cb)
         f.suptitle("The time to alarm for each of the smoke sources")
@@ -244,17 +258,17 @@ class SDOptimizer():
         arange subplots in a rough square based on the number of inputs
         """
         if num == 1:
-            f, ax = plt.subplots(1,1)
+            f, ax = plt.subplots(1, 1)
             ax = np.asarray([ax])
             return f, ax
         num_x = np.ceil(np.sqrt(num))
         num_y = np.ceil(num / num_x)
         f, ax = plt.subplots(int(num_y), int(num_x))
-        ax = ax.flatten() #
+        ax = ax.flatten()
         return f, ax
 
-
-    def plot_sweep(self, xytimes, fixed_detectors, bounds, max_val=None, centers=None):
+    def plot_sweep(self, xytimes, fixed_detectors,
+                   bounds, max_val=None, centers=None):
         """
         xytimes : ArrayLike[Tuple[]]
             the smoke propagation information
@@ -292,12 +306,14 @@ class SDOptimizer():
         else:
             plt.legend([fixed], ["The fixed detectors"])
         plt.title("Effects of placing the last detector with {} fixed".format(
-            int(len(fixed_detectors)/2)))
+            int(len(fixed_detectors) / 2)))
         plt.show()
 
-    def pmesh_plot(self, xs, ys, values, plotter, max_val=None, num_samples=50, cmap=plt.cm.inferno):
+    def pmesh_plot(self, xs, ys, values, plotter, max_val=None,
+                   num_samples=50, cmap=plt.cm.inferno):
         points = np.stack((xs, ys), axis=1)
-        sample_points = (np.linspace(min(xs), max(xs), num_samples), np.linspace(min(ys), max(ys), num_samples))
+        sample_points = (np.linspace(min(xs), max(xs), num_samples),
+                         np.linspace(min(ys), max(ys), num_samples))
         xis, yis = np.meshgrid(*sample_points)
         flattened_xis = xis.flatten()
         flattened_yis = yis.flatten()
@@ -306,12 +322,14 @@ class SDOptimizer():
         if max_val is not None:
             norm = mpl.colors.Normalize(0, max_val)
         else:
-            norm = mpl.colors.Normalize() # default
+            norm = mpl.colors.Normalize()  # default
 
-        cb = plotter.pcolormesh(xis, yis, reshaped_interpolated, cmap=cmap, norm=norm)
-        return cb # return the colorbar
+        cb = plotter.pcolormesh(
+            xis, yis, reshaped_interpolated, cmap=cmap, norm=norm)
+        return cb  # return the colorbar
 
-    def visualize_all(self, objective_func, optimized_detectors, bounds, max_val=None, num_samples=30, verbose=False):
+    def visualize_all(self, objective_func, optimized_detectors,
+                      bounds, max_val=None, num_samples=30, verbose=False):
         """
         The goal is to do a sweep with each of the detectors leaving the others fixed
         """
@@ -329,21 +347,21 @@ class SDOptimizer():
         plt.cla()
         plt.clf()
         #f, ax = plt.subplots(int(len(optimized_detectors)/2), 1)
-        f, ax = self.get_square_axis(len(optimized_detectors)/2)
+        f, ax = self.get_square_axis(len(optimized_detectors) / 2)
 
         num_samples = grid.shape[0]
 
         for i in range(0, len(optimized_detectors), 2):
             selected_detectors = np.concatenate(
-                (optimized_detectors[:i], optimized_detectors[(i+2):]), axis=0)  # get all but one
+                (optimized_detectors[:i], optimized_detectors[(i + 2):]), axis=0)  # get all but one
 
             repeated_selected = np.tile(np.expand_dims(
                 selected_detectors, axis=0), reps=(num_samples, 1))
             locations = np.concatenate((grid, repeated_selected), axis=1)
 
             times = [objective_func(xys) for xys in locations]
-            if type(ax) is np.ndarray: # ax may be al
-                which_plot = ax[int(i/2)]
+            if isinstance(ax, np.ndarray):  # ax may be al
+                which_plot = ax[int(i / 2)]
             else:
                 which_plot = ax
 
@@ -361,7 +379,8 @@ class SDOptimizer():
         plt.colorbar(cb, ax=ax[-1])
         plt.show()
 
-    def optimize(self, sources, bounds, initialization, genetic=True, visualize=True):
+    def optimize(self, sources, bounds, initialization,
+                 genetic=True, visualize=True):
         """
         sources : ArrayLike
             list of (x, y, time) tuples
@@ -378,14 +397,17 @@ class SDOptimizer():
         total_ret_func = self.make_total_lookup_function(sources)
         values = []
         # TODO see if there's a more efficient way to do this
-        def callback(xk, convergence): # make the callback to record the values of the function
-            val = total_ret_func(xk) # the objective function
+
+        def callback(xk, convergence):  # make the callback to record the values of the function
+            val = total_ret_func(xk)  # the objective function
             values.append(val)
 
         if genetic:
-            res = differential_evolution(total_ret_func, expanded_bounds, callback=callback)
+            res = differential_evolution(
+                total_ret_func, expanded_bounds, callback=callback)
         else:
-            res = minimize(total_ret_func, initialization, method='COBYLA', callback=callback)
+            res = minimize(total_ret_func, initialization,
+                           method='COBYLA', callback=callback)
 
         if visualize:
             plt.title("Objective function values over time")
@@ -398,7 +420,7 @@ class SDOptimizer():
         xs = res.x
         output = "The locations are: "
         for i in range(0, xs.shape[0], 2):
-            output += ("({:.3f}, {:.3f}), ".format(xs[i], xs[i+1]))
+            output += ("({:.3f}, {:.3f}), ".format(xs[i], xs[i + 1]))
         print(output)
         return res
 
