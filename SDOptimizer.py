@@ -13,6 +13,8 @@ import glob
 import os
 from scipy.optimize import minimize, differential_evolution, rosen, rosen_der, fmin_l_bfgs_b
 from scipy.interpolate import griddata
+from mpl_toolkits import mplot3d
+from platypus import NSGAII, Problem, Real
 
 
 DATA_FILE = "exportUSLab.csv"  # Points to the data Katie gave us
@@ -299,6 +301,19 @@ class SDOptimizer():
             return worst_source
         return ret_func
 
+    def make_platypus_objective_function(self, sources):
+        total_ret_func = self.make_total_lookup_function(sources) # the function to be optimized
+        def multiobjective_func(x): # this is the double objective function
+            #return [total_ret_func(x), np.linalg.norm(x)]
+            return [total_ret_func(x), np.linalg.norm(x)]
+
+        num_inputs = len(sources) * 2 # there is an x, y for each source
+        NUM_OUPUTS = 2 # the default for now
+        problem = Problem(num_inputs, NUM_OUPUTS) # define the demensionality of input and output spaces
+        problem.types[:] = Real(0, 10) # TODO this really should be based on the feasible region
+        problem.function = multiobjective_func
+        return problem
+
     def plot_inputs(self, inputs, optimized):
         plt.cla()
         plt.clf()
@@ -316,17 +331,25 @@ class SDOptimizer():
         plt.show()
         return max_z
 
-    def get_square_axis(self, num):
+    def get_square_axis(self, num, is_3d=False):
         """
         arange subplots in a rough square based on the number of inputs
         """
         if num == 1:
-            f, ax = plt.subplots(1, 1)
+            if is_3d:
+                f, ax = plt.subplots(1, 1, projection='3d')
+            else:
+                f, ax = plt.subplots(1, 1)
+
             ax = np.asarray([ax])
             return f, ax
         num_x = np.ceil(np.sqrt(num))
         num_y = np.ceil(num / num_x)
-        f, ax = plt.subplots(int(num_y), int(num_x))
+        if is_3d:
+            f, ax = plt.subplots(int(num_y), int(num_x),  projection='3d')
+        else:
+            f, ax = plt.subplots(int(num_y), int(num_x))
+
         ax = ax.flatten()
         return f, ax
 
@@ -380,6 +403,7 @@ class SDOptimizer():
             plotter,
             max_val=None,
             num_samples=50,
+            is_3d=False,
             cmap=plt.cm.inferno):
         """
         conveneince function to easily plot the sort of data we have
@@ -397,8 +421,50 @@ class SDOptimizer():
         else:
             norm = mpl.colors.Normalize()  # default
 
-        cb = plotter.pcolormesh(
-            xis, yis, reshaped_interpolated, cmap=cmap, norm=norm)
+        if is_3d:
+            plt.cla()
+            plt.clf()
+            plt.close()
+            fig = plt.figure()
+            ax = plt.axes(projection='3d')
+            cb = ax.plot_surface(xis, yis, reshaped_interpolated,cmap=cmap, norm=norm, edgecolor='none')
+            plt.show()
+        else:
+            cb = plotter.pcolormesh(
+                xis, yis, reshaped_interpolated, cmap=cmap, norm=norm)
+        return cb  # return the colorbar
+
+    def plot_3d(
+            self,
+            xs,
+            ys,
+            values,
+            plotter,
+            max_val=None,
+            num_samples=50,
+            is_3d=False,
+            cmap=plt.cm.inferno):
+        """
+        conveneince function to easily plot the sort of data we have
+        """
+        points = np.stack((xs, ys), axis=1)
+        sample_points = (np.linspace(min(xs), max(xs), num_samples),
+                         np.linspace(min(ys), max(ys), num_samples))
+        xis, yis = np.meshgrid(*sample_points)
+        flattened_xis = xis.flatten()
+        flattened_yis = yis.flatten()
+        interpolated = griddata(points, values, (flattened_xis, flattened_yis))
+        reshaped_interpolated = np.reshape(interpolated, xis.shape)
+        if max_val is not None:
+            norm = mpl.colors.Normalize(0, max_val)
+        else:
+            norm = mpl.colors.Normalize()  # default
+
+        fig = plt.figure()
+        ax = plt.axes(projection='3d')
+        cb = ax.plot_surface(xis, yis, reshaped_interpolated,cmap=cmap, norm=norm, edgecolor='none')
+        ax.set_title('Surface plot')
+        plt.show()
         return cb  # return the colorbar
 
     def visualize_all(self, objective_func, optimized_detectors,
@@ -470,6 +536,20 @@ class SDOptimizer():
                 [(bounds[0], bounds[1]), (bounds[2], bounds[3])]) # set up the appropriate number of bounds
         print("The bounds are now {}".format(expanded_bounds))
         total_ret_func = self.make_total_lookup_function(sources) # the function to be optimized
+        PLATYPUS = True
+        if PLATYPUS:
+            problem = self.make_platypus_objective_function(sources) #TODO remove this
+            algorithm = NSGAII(problem)
+            # optimize the problem using 1,000 function evaluations
+            algorithm.run(1000)
+
+            plt.scatter([s.objectives[0] for s in algorithm.result],
+                [s.objectives[1] for s in algorithm.result])
+            plt.xlabel("$f_1(x)$")
+            plt.ylabel("$f_2(x)$")
+            plt.title("parato optimality for the real function and the norm of the location")
+            plt.show()
+
         values = []
         # TODO see if there's a more efficient way to do this
 
