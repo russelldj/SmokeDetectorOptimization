@@ -28,6 +28,8 @@ class SDOptimizer():
     def __init__(self):
         self.logger = logging.getLogger('main')
         self.logger.debug("Instantiated the optimizer")
+        self.is3d = False
+
 
     def load_data(self, data_file):
         """
@@ -310,7 +312,14 @@ class SDOptimizer():
         num_inputs = len(sources) * 2 # there is an x, y for each source
         NUM_OUPUTS = 2 # the default for now
         problem = Problem(num_inputs, NUM_OUPUTS) # define the demensionality of input and output spaces
-        problem.types[:] = Real(0, 10) # TODO this really should be based on the feasible region
+        x, y, time = sources[0] # expand the first source
+        min_x = min(x)
+        min_y = min(y)
+        max_x = max(x)
+        max_y = max(y)
+        print("min x : {}, max x : {}, min y : {}, max y : {}".format(min_x, max_x, min_y, max_y))
+        problem.types[::2] = Real(min_x, max_x) # This is the feasible region
+        problem.types[1::2] = Real(min_y, max_y)
         problem.function = multiobjective_func
         return problem
 
@@ -421,13 +430,14 @@ class SDOptimizer():
         else:
             norm = mpl.colors.Normalize()  # default
 
-        if is_3d:
+        if self.is3d:
             plt.cla()
             plt.clf()
             plt.close()
             fig = plt.figure()
             ax = plt.axes(projection='3d')
-            cb = ax.plot_surface(xis, yis, reshaped_interpolated,cmap=cmap, norm=norm, edgecolor='none')
+            #cb = ax.plot_surface(xis, yis, reshaped_interpolated,cmap=cmap, norm=norm, edgecolor='none')
+            cb = ax.contour3D(xis, yis, reshaped_interpolated, 60, cmap=cmap)
             plt.show()
         else:
             cb = plotter.pcolormesh(
@@ -468,7 +478,7 @@ class SDOptimizer():
         return cb  # return the colorbar
 
     def visualize_all(self, objective_func, optimized_detectors,
-                      bounds, max_val=None, num_samples=30, verbose=False):
+                      bounds, max_val=None, num_samples=30, verbose=False, is3d=False):
         """
         The goal is to do a sweep with each of the detectors leaving the others fixed
         """
@@ -519,7 +529,7 @@ class SDOptimizer():
         plt.show()
 
     def optimize(self, sources, bounds, initialization,
-                 genetic=True, visualize=True):
+                 genetic=True, platypus=False, visualize=True, is3d=False):
         """
         sources : ArrayLike
             list of (x, y, time) tuples
@@ -534,10 +544,8 @@ class SDOptimizer():
         for i in range(0, len(initialization), 2):
             expanded_bounds.extend(
                 [(bounds[0], bounds[1]), (bounds[2], bounds[3])]) # set up the appropriate number of bounds
-        print("The bounds are now {}".format(expanded_bounds))
         total_ret_func = self.make_total_lookup_function(sources) # the function to be optimized
-        PLATYPUS = True
-        if PLATYPUS:
+        if platypus:
             problem = self.make_platypus_objective_function(sources) #TODO remove this
             algorithm = NSGAII(problem)
             # optimize the problem using 1,000 function evaluations
@@ -545,9 +553,9 @@ class SDOptimizer():
 
             plt.scatter([s.objectives[0] for s in algorithm.result],
                 [s.objectives[1] for s in algorithm.result])
-            plt.xlabel("$f_1(x)$")
-            plt.ylabel("$f_2(x)$")
-            plt.title("parato optimality for the real function and the norm of the location")
+            plt.xlabel("The real function")
+            plt.ylabel("The norm of the values")
+            plt.title("Pareto optimality curve for the two functions")
             plt.show()
 
         values = []
@@ -572,35 +580,47 @@ class SDOptimizer():
             plt.show()
             max_val = self.plot_inputs(sources, res.x)
             self.visualize_all(total_ret_func, res.x, bounds, max_val=max_val)
-        xs = res.x
-        output = "The locations are: "
-        for i in range(0, xs.shape[0], 2):
-            output += ("({:.3f}, {:.3f}), ".format(xs[i], xs[i + 1]))
-        print(output)
+            xs = res.x
+            print("The bounds are now {}".format(expanded_bounds))
+            output = "The locations are: "
+            for i in range(0, xs.shape[0], 2):
+                output += ("({:.3f}, {:.3f}), ".format(xs[i], xs[i + 1]))
+            print(output)
         return res
 
     def evaluate_optimization(self, sources, bounds, initialization,
                  genetic=True, visualize=True, num_iterations=10):
         vals = []
         locs = []
+        iterations = []
         for i in range(num_iterations):
             res = self.optimize(sources, bounds, initialization, genetic=genetic, visualize=False)
             vals.append(res.fun)
             locs.append(res.x)
+            iterations.append(res.nit)
 
         if visualize:
-            plt.scatter(np.zeros_like(vals), vals)
-            plt.ylabel("objective function values") # TODO make this a histogram
+            fig, (ax1, ax2) = plt.subplots(1, 2)
+            ax1.hist(vals, bins=10, rwidth=0.25) # plot the bins as a quarter of the spread
+            ax1.set_ylabel("objective function values") # TODO make this a histogram
+            ax2.hist(iterations, bins=10)
+            ax2.set_ylabel("number of iterations function values") # TODO make this a histogram
             plt.show()
             for loc in locs:
                 self.plot_xy(loc)
             plt.xlim(0, 8.1)
             plt.ylim(0, 3)
             plt.show()
-        return vals, locs
+        return vals, locs, iterations
 
     def plot_xy(self, xy):
         plt.scatter(xy[::2], xy[1::2])
+
+    def set_3d(self, value=False):
+        """
+        set whether it should be 3d
+        """
+        self.is3d = value
 
 
 if __name__ == "__main__":  # Only run if this was run from the commmand line
