@@ -21,12 +21,9 @@ from platypus import * # TODO fix this terrible practice
 from tqdm.notebook import trange, tqdm # For plotting progress
 from time import sleep
 
-
-DATA_FILE = "exportUSLab.csv"  # Points to the data Katie gave us
-VISUALIZE = False
-ALARM_THRESHOLD = 4e-20
-BIG_NUMBER = 100
-INFEASIBLE_VALUE = BIG_NUMBER * 1.5
+from visualization import show_optimization_statistics
+from functions import make_location_objective, make_counting_objective, make_lookup, make_total_lookup_function
+from constants import * # TODO fix this
 
 
 class SDOptimizer():
@@ -34,7 +31,6 @@ class SDOptimizer():
         self.logger = logging.getLogger('main')
         self.logger.debug("Instantiated the optimizer")
         self.is3d = False
-
 
     def load_data(self, data_file):
         """
@@ -225,120 +221,10 @@ class SDOptimizer():
         z = z.flatten()
         return (x, y, z)
 
-    def make_lookup(self, X, Y, time_to_alarm):
-        """
-        X, Y : ArrayLike[Float]
-            The x, y locations of the data points from the simulation
-        time_to_alarm : ArrayLike[Float]
-            The time to alarm corresponding to each of the locations
-        -----returns-----
-        the data at the sample nearest a given point
-        """
-        best = np.argmin(
-            time_to_alarm)  # get the location of the shortest time to alarm
-        XY = np.vstack((X, Y)).transpose()  # combine the x and y data points
-        self.logger.info("The best time, determined by exaustive search, is {} and occurs at {}".format(
-            time_to_alarm[best], XY[best, :]))
-        EPSILON = 0.00000001
 
-        def ret_func(xy):  # this is what will be returned
-            if False:#TODO this should be True
-                closest_time = griddata(XY, time_to_alarm, xy)
-                print(closest_time)
-            else:
-                diff = xy - XY  # get the x and y distances from the query point for each marked point
-                dist = np.linalg.norm(diff, axis=1)
-                locs = np.argsort(dist)[:1]
-                # weight by one over the distance to the sample point
-                weights = 1.0 / (dist[locs] + EPSILON)
-                reweighted = weights * time_to_alarm[locs]
-                closest_time = sum(reweighted) / sum(weights)
-            return closest_time
-        return ret_func
-
-    def make_total_lookup_function(
-            self,
-            xytimes,
-            verbose=False,
-            type="worst_case",
-            masked=False):
-        """
-        This function creates and returns the function which will be optimized
-        -----inputs------
-        xytimes : ArrayLike[Tuple[ArrayLike[Float]]]
-            A list of tuples in the form [(x, y, times), (x, y, times), ....] coresponding to the different smokes sources
-        verbose : Boolean
-            print information during functinon evaluations
-        type : String
-            What function to use, "worst_cast", "softened", "second"
-        masked : bool
-            Is the input going to be [x, y, on, x, y, on, ...] representing active detectors
-        -----returns-----
-        ret_func : Function[ArrayLike[Float] -> Float]
-            This is the function which will eventually be optimized and it maps from the smoke detector locations to the time to alarm
-            A function mapping [x1, y1, x2, y2, ....], represnting the x, y coordinates of each detector,to the objective function value
-        """
-        # Create data which will be used inside of the function to be returned
-        funcs = []
-        for x, y, times in xytimes:
-            # create all of the functions mapping from a location to a time
-            funcs.append(self.make_lookup(x, y, times))
-
-        def ret_func(xys):
-            """
-            xys : ArrayLike
-                Represents the x, y location of each of the smoke detectors as [x1, y1, x2, y2]
-                could also be the [x, y, on, x, y, on,...] but masked should be specified in make_total_lookup_function
-            -----returns-----
-            worst_source : Float
-                The objective function for the input
-            """
-            all_times = []  # each internal list coresponds to a smoke detector location
-            if masked:
-                some_on = False
-                for i in range(0, len(xys), 3):
-                    x, y, on = xys[i:i+3]
-                    if on[0]: # don't evaluate a detector which isn't on, on is really a list of length 1
-                        all_times.append([])
-                        some_on = True
-                        for func in funcs:
-                            all_times[-1].append(func([x, y]))
-                all_times = np.asarray(all_times)
-                if not some_on: # This means that no sources were turned on
-                    return BIG_NUMBER
-            else:
-                for i in range(0, len(xys), 2):
-                    all_times.append([])
-                    x, y= xys[i:i+2]
-                    for func in funcs:
-                        all_times[-1].append(func([x, y]))
-                all_times = np.asarray(all_times)
-
-            if type == "worst_case":
-                time_for_each_source = np.amin(all_times, axis=0)
-                worst_source = np.amax(time_for_each_source)
-                ret_val = worst_source
-            if type == "second":
-                time_for_each_source = np.amin(all_times, axis=0)
-                second_source = np.sort(time_for_each_source)[1]
-                ret_val = second_source
-            if type == "softened":
-                time_for_each_source = np.amin(all_times, axis=0)
-                sorted = np.sort(time_for_each_source)[1]
-                ALPHA = 0.3
-                ret_val = (sorted[0] + ALPHA * sorted[1]) / (1 + ALPHA)
-
-            if verbose:
-                print("all of the times are {}".format(all_times))
-                print("The quickest detction for each source is {}".format(
-                    time_for_each_source))
-                print(
-                    "The slowest-to-be-detected source takes {}".format(worst_source))
-            return ret_val
-        return ret_func
 
     def make_platypus_objective_function(self, sources):
-        total_ret_func = self.make_total_lookup_function(sources) # the function to be optimized
+        total_ret_func = make_total_lookup_function(sources) # the function to be optimized
         def multiobjective_func(x): # this is the double objective function
             #return [total_ret_func(x), np.linalg.norm(x)]
             return [total_ret_func(x), np.linalg.norm(x)]
@@ -358,8 +244,8 @@ class SDOptimizer():
         return problem
 
     def make_platypus_mixed_integer_objective_function(self, sources):
-        total_ret_func = self.make_total_lookup_function(sources, masked=True) # the function to be optimized
-        counting_func  = self.make_counting_objective()
+        total_ret_func = make_total_lookup_function(sources, masked=True) # the function to be optimized
+        counting_func  = make_counting_objective()
         def multiobjective_func(x): # this is the double objective function
             return [total_ret_func(x), counting_func(x)]
 
@@ -378,37 +264,6 @@ class SDOptimizer():
         problem.function = multiobjective_func
         return problem
 
-    def make_location_objective(self, masked):
-        """
-        an example function to evalute the quality of the locations
-        """
-        if masked:
-            def location_evaluation(xyons): # TODO make this cleaner
-                good = []
-                for i in range(0, len(xyons), 3):
-                    x, y, on = xyons[i:i+3]
-                    if on[0]:
-                        good.extend([x,y])
-                if len(good) == 0: # This means none were on
-                    return 0
-                else:
-                    return np.linalg.norm(good)
-        else:
-            def location_evaluation(xys):
-                return np.linalg.norm(xys)
-
-
-        return location_evaluation
-
-    def make_counting_objective(self):
-        def counting_func(xyons):
-            val = 0
-            for i in range(0, len(xyons), 3):
-                x, y, on = xyons[i:i+3]
-                if on[0]:
-                    val += 1
-            return val
-        return counting_func
 
 
 
@@ -463,7 +318,7 @@ class SDOptimizer():
             [x_low, x_high, y_low, y_high] the bounds on the swept variable
         """
         # TODO refactor so this is the same as the other one
-        time_func = self.make_total_lookup_function(xytimes)
+        time_func = make_total_lookup_function(xytimes)
         print(time_func)
         x_low, x_high, y_low, y_high = bounds
         xs = np.linspace(x_low, x_high)
@@ -640,9 +495,9 @@ class SDOptimizer():
             expanded_bounds.extend(
                 [(bounds[0], bounds[1]), (bounds[2], bounds[3])]) # set up the appropriate number of bounds
         if "type" in kwargs:
-            total_ret_func = self.make_total_lookup_function(sources, type=kwargs["type"]) # the function to be optimized
+            total_ret_func = make_total_lookup_function(sources, type=kwargs["type"]) # the function to be optimized
         else:
-            total_ret_func = self.make_total_lookup_function(sources) # the function to be optimized
+            total_ret_func = make_total_lookup_function(sources) # the function to be optimized
         if platypus:
             if masked:
                 problem = self.make_platypus_mixed_integer_objective_function(sources) #TODO remove this
@@ -708,28 +563,12 @@ class SDOptimizer():
             iterations.append(res.nit)
 
         if visualize:
-            self.show_optimization_statistics(vals, iterations, locs)
+            show_optimization_statistics(vals, iterations, locs)
 
         return vals, locs, iterations
 
     def show_optimization_statistics(self, vals, iterations, locs):
-        fig, (ax1, ax2) = plt.subplots(1, 2)
-        #ax1.hist(vals, bins=10, rwidth=0.25) # plot the bins as a quarter of the spread
-        ax1.violinplot(vals)
-        ax1.set_ylabel("objective function values") # TODO make this a histogram
-        #ax2.hist(iterations, bins=10)
-        ax2.violinplot(iterations)
-        ax2.set_ylabel("number of iterations function values") # TODO make this a histogram
-        plt.show()
-        for loc in locs:
-            self.plot_xy(loc)
-        plt.xlim(0, 8.1)
-        plt.ylim(0, 3)
-        plt.show()
-
-
-    def plot_xy(self, xy):
-        plt.scatter(xy[::2], xy[1::2])
+        show_optimization_statistics(vals, iterations, locs)
 
     def set_3d(self, value=False):
         """
@@ -749,8 +588,8 @@ if __name__ == "__main__":  # Only run if this was run from the commmand line
     X1, Y1, time_to_alarm1 = SDO.get_time_to_alarm(False)
     X2, Y2, time_to_alarm2 = SDO.example_time_to_alarm(
         (0, 1), (0, 1), (0.3, 0.7), False)
-    ret_func = SDO.make_lookup(X1, Y1, time_to_alarm1)
-    total_ret_func = SDO.make_total_lookup_function(
+    ret_func = make_lookup(X1, Y1, time_to_alarm1)
+    total_ret_func = make_total_lookup_function(
         [(X1, Y1, time_to_alarm1), (X2, Y2, time_to_alarm2)])
 
     CENTERS = [0.2, 0.8, 0.8, 0.8, 0.8, 0.2]
@@ -760,7 +599,7 @@ if __name__ == "__main__":  # Only run if this was run from the commmand line
     x3, y3, z3 = SDO.example_time_to_alarm([0, 1], [0, 1], CENTERS[4:6], False)
     inputs = [(x1, y1, z1), (x2, y2, z2), (x3, y3, z3)]
 
-    total_ret_func = SDO.make_total_lookup_function(inputs)
+    total_ret_func = make_total_lookup_function(inputs)
     BOUNDS = ((0, 1), (0, 1), (0, 1), (0, 1))  # constraints on inputs
     INIT = (0.51, 0.52, 0.47, 0.6, 0.55, 0.67)
     res = minimize(total_ret_func, INIT, method='COBYLA')
