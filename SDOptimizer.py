@@ -3,6 +3,8 @@
 import io
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use('module://ipykernel.pylab.backend_inline')
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import matplotlib.animation as animation
@@ -14,7 +16,10 @@ import os
 from scipy.optimize import minimize, differential_evolution, rosen, rosen_der, fmin_l_bfgs_b
 from scipy.interpolate import griddata
 from mpl_toolkits import mplot3d
-from platypus import NSGAII, Problem, Real
+#from platypus import NSGAII, Problem, Real, Binary, Integer
+from platypus import * # TODO fix this terrible practice
+from tqdm.notebook import trange, tqdm # For plotting progress
+from time import sleep
 
 
 DATA_FILE = "exportUSLab.csv"  # Points to the data Katie gave us
@@ -181,6 +186,8 @@ class SDOptimizer():
             cb = self.pmesh_plot(X, Y, time_to_alarm, plt, num_samples=70)
             plt.colorbar(cb)  # Add a colorbar to a plot
             plt.title("Time to alarm versus location on the wall")
+            plt.xlabel("X location")
+            plt.ylabel("Y location")
             plt.show()
             samples = np.random.choice(consentrations.shape[1], 10)
             rows = consentrations[:,samples].transpose()
@@ -253,7 +260,8 @@ class SDOptimizer():
             self,
             xytimes,
             verbose=False,
-            type="worst_case"):
+            type="worst_case",
+            masked=False):
         """
         This function creates and returns the function which will be optimized
         -----inputs------
@@ -262,7 +270,9 @@ class SDOptimizer():
         verbose : Boolean
             print information during functinon evaluations
         type : String
-            In the future I will implement other variations
+            What function to use, "worst_cast", "softened", "second"
+        masked : bool
+            Is the input going to be [x, y, on, x, y, on, ...] representing active detectors
         -----returns-----
         ret_func : Function[ArrayLike[Float] -> Float]
             This is the function which will eventually be optimized and it maps from the smoke detector locations to the time to alarm
@@ -278,29 +288,53 @@ class SDOptimizer():
             """
             xys : ArrayLike
                 Represents the x, y location of each of the smoke detectors as [x1, y1, x2, y2]
+                could also be the [x, y, on, x, y, on,...] but masked should be specified in make_total_lookup_function
             -----returns-----
             worst_source : Float
                 The objective function for the input
             """
             all_times = []  # each internal list coresponds to a smoke detector location
-            for i in range(0, len(xys), 2):
-                all_times.append([])
-                x = xys[i]
-                y = xys[i + 1]
-                for func in funcs:
-                    all_times[-1].append(func([x, y]))
-            #                     np.amax([np.amin([f(x) for x in xs]) for f in functions])
-            # Take the min over all locations then max over all sources
-            all_times = np.asarray(all_times)
-            time_for_each_source = np.amin(all_times, axis=0)
-            worst_source = np.amax(time_for_each_source)
+            if masked:
+                some_on = False
+                for i in range(0, len(xys), 3):
+                    x, y, on = xys[i:i+3]
+                    if on[0]: # don't evaluate a detector which isn't on, on is really a list of length 1
+                        all_times.append([])
+                        some_on = True
+                        for func in funcs:
+                            all_times[-1].append(func([x, y]))
+                all_times = np.asarray(all_times)
+                if not some_on: # This means that no sources were turned on
+                    return BIG_NUMBER
+            else:
+                for i in range(0, len(xys), 2):
+                    all_times.append([])
+                    x, y= xys[i:i+2]
+                    for func in funcs:
+                        all_times[-1].append(func([x, y]))
+                all_times = np.asarray(all_times)
+
+            if type == "worst_case":
+                time_for_each_source = np.amin(all_times, axis=0)
+                worst_source = np.amax(time_for_each_source)
+                ret_val = worst_source
+            if type == "second":
+                time_for_each_source = np.amin(all_times, axis=0)
+                second_source = np.sort(time_for_each_source)[1]
+                ret_val = second_source
+            if type == "softened":
+                time_for_each_source = np.amin(all_times, axis=0)
+                sorted = np.sort(time_for_each_source)[1]
+                ALPHA = 0.3
+                ret_val = (sorted[0] + ALPHA * sorted[1]) / (1 + ALPHA)
+
             if verbose:
                 print("all of the times are {}".format(all_times))
                 print("The quickest detction for each source is {}".format(
                     time_for_each_source))
                 print(
                     "The slowest-to-be-detected source takes {}".format(worst_source))
-            return worst_source
+            return ret_val
         return ret_func
 
     def make_platypus_objective_function(self, sources):
@@ -322,6 +356,49 @@ class SDOptimizer():
         problem.types[1::2] = Real(min_y, max_y)
         problem.function = multiobjective_func
         return problem
+
+    def make_platypus_mixed_integer_objective_function(self, sources):
+        total_ret_func = self.make_total_lookup_function(sources, masked=True) # the function to be optimized
+        location_func  = self.make_location_objective(masked=True)
+        def multiobjective_func(x): # this is the double objective function
+            return [total_ret_func(x), location_func(x)]
+
+        num_inputs = len(sources) * 3 # there is an x, y, and a mask for each source
+        NUM_OUPUTS = 2 # the default for now
+        problem = Problem(num_inputs, NUM_OUPUTS) # define the demensionality of input and output spaces
+        x, y, time = sources[0] # expand the first source
+        min_x = min(x)
+        min_y = min(y)
+        max_x = max(x)
+        max_y = max(y)
+        print("min x : {}, max x : {}, min y : {}, max y : {}".format(min_x, max_x, min_y, max_y))
+        problem.types[0::3] = Real(min_x, max_x) # This is the feasible region
+        problem.types[1::3] = Real(min_y, max_y)
+        problem.types[2::3] = Binary(1) # This appears to be inclusive, so this is really just (0, 1)
+        problem.function = multiobjective_func
+        return problem
+
+    def make_location_objective(self, masked):
+        """
+        an example function to evalute the quality of the locations
+        """
+        if masked:
+            def location_evaluation(xyons): # TODO make this cleaner
+                good = []
+                for i in range(0, len(xyons), 3):
+                    x, y, on = xyons[i:i+3]
+                    if on[0]:
+                        good.extend([x,y])
+                if len(good) == 0: # This means none were on
+                    return 0
+                else:
+                    return np.linalg.norm(good)
+        else:
+            def location_evaluation(xys):
+                return np.linalg.norm(xys)
+
+
+        return location_evaluation
 
     def plot_inputs(self, inputs, optimized):
         plt.cla()
@@ -529,7 +606,7 @@ class SDOptimizer():
         plt.show()
 
     def optimize(self, sources, bounds, initialization,
-                 genetic=True, platypus=False, visualize=True, is3d=False):
+                 genetic=True, platypus=False, visualize=True, is3d=False, masked=False, **kwargs):
         """
         sources : ArrayLike
             list of (x, y, time) tuples
@@ -539,17 +616,31 @@ class SDOptimizer():
             [x1, y1, x2, y2,...] The initial location for the optimization
         genetic : Boolean
             whether to use a genetic algorithm
+        masked : Boolean
+            Whether the input is masked
+        kwargs : This is some python dark majic stuff which effectively lets you get a dictionary of named arguments
         """
         expanded_bounds = []
         for i in range(0, len(initialization), 2):
             expanded_bounds.extend(
                 [(bounds[0], bounds[1]), (bounds[2], bounds[3])]) # set up the appropriate number of bounds
-        total_ret_func = self.make_total_lookup_function(sources) # the function to be optimized
+        if "type" in kwargs:
+            total_ret_func = self.make_total_lookup_function(sources, type=kwargs["type"]) # the function to be optimized
+        else:
+            total_ret_func = self.make_total_lookup_function(sources) # the function to be optimized
         if platypus:
-            problem = self.make_platypus_objective_function(sources) #TODO remove this
-            algorithm = NSGAII(problem)
+            if masked:
+                problem = self.make_platypus_mixed_integer_objective_function(sources) #TODO remove this
+                # it complains about needing a defined mutator for mixed problems
+                # Suggestion taken from https://github.com/Project-Platypus/Platypus/issues/31
+                algorithm = NSGAII(problem, variator=CompoundOperator(SBX(), HUX(), PM(), BitFlip()))
+            else:
+                problem = self.make_platypus_objective_function(sources) #TODO remove this
+                algorithm = NSGAII(problem)
             # optimize the problem using 1,000 function evaluations
             algorithm.run(1000)
+            for solution in algorithm.result:
+                print("Solution : {}, Location : {}".format(solution.objectives, solution.variables))
 
             plt.scatter([s.objectives[0] for s in algorithm.result],
                 [s.objectives[1] for s in algorithm.result])
@@ -593,25 +684,32 @@ class SDOptimizer():
         vals = []
         locs = []
         iterations = []
-        for i in range(num_iterations):
+        for i in trange(num_iterations):
             res = self.optimize(sources, bounds, initialization, genetic=genetic, visualize=False)
             vals.append(res.fun)
             locs.append(res.x)
             iterations.append(res.nit)
 
         if visualize:
-            fig, (ax1, ax2) = plt.subplots(1, 2)
-            ax1.hist(vals, bins=10, rwidth=0.25) # plot the bins as a quarter of the spread
-            ax1.set_ylabel("objective function values") # TODO make this a histogram
-            ax2.hist(iterations, bins=10)
-            ax2.set_ylabel("number of iterations function values") # TODO make this a histogram
-            plt.show()
-            for loc in locs:
-                self.plot_xy(loc)
-            plt.xlim(0, 8.1)
-            plt.ylim(0, 3)
-            plt.show()
+            self.show_optimization_statistics(vals, iterations, locs)
+
         return vals, locs, iterations
+
+    def show_optimization_statistics(self, vals, iterations, locs):
+        fig, (ax1, ax2) = plt.subplots(1, 2)
+        #ax1.hist(vals, bins=10, rwidth=0.25) # plot the bins as a quarter of the spread
+        ax1.violinplot(vals)
+        ax1.set_ylabel("objective function values") # TODO make this a histogram
+        #ax2.hist(iterations, bins=10)
+        ax2.violinplot(iterations)
+        ax2.set_ylabel("number of iterations function values") # TODO make this a histogram
+        plt.show()
+        for loc in locs:
+            self.plot_xy(loc)
+        plt.xlim(0, 8.1)
+        plt.ylim(0, 3)
+        plt.show()
+
 
     def plot_xy(self, xy):
         plt.scatter(xy[::2], xy[1::2])
@@ -621,6 +719,11 @@ class SDOptimizer():
         set whether it should be 3d
         """
         self.is3d = value
+
+    def test_tqdm(self):
+        for _ in trange(30): # For plotting progress
+            sleep(0.5)
+
 
 
 if __name__ == "__main__":  # Only run if this was run from the commmand line
