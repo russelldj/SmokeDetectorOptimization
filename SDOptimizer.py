@@ -359,9 +359,9 @@ class SDOptimizer():
 
     def make_platypus_mixed_integer_objective_function(self, sources):
         total_ret_func = self.make_total_lookup_function(sources, masked=True) # the function to be optimized
-        location_func  = self.make_location_objective(masked=True)
+        counting_func  = self.make_counting_objective()
         def multiobjective_func(x): # this is the double objective function
-            return [total_ret_func(x), location_func(x)]
+            return [total_ret_func(x), counting_func(x)]
 
         num_inputs = len(sources) * 3 # there is an x, y, and a mask for each source
         NUM_OUPUTS = 2 # the default for now
@@ -399,6 +399,19 @@ class SDOptimizer():
 
 
         return location_evaluation
+
+    def make_counting_objective(self):
+        def counting_func(xyons):
+            val = 0
+            for i in range(0, len(xyons), 3):
+                x, y, on = xyons[i:i+3]
+                if on[0]:
+                    val += 1
+            return val
+        return counting_func
+
+
+
 
     def plot_inputs(self, inputs, optimized):
         plt.cla()
@@ -605,8 +618,10 @@ class SDOptimizer():
         plt.colorbar(cb, ax=ax[-1])
         plt.show()
 
-    def optimize(self, sources, bounds, initialization,
-                 genetic=True, platypus=False, visualize=True, is3d=False, masked=False, **kwargs):
+    def optimize(self, sources, bounds, num_sources,
+                 genetic=True, platypus=False, visualize=True,
+                 verbose=False, is3d=False, masked=False,
+                 intialization=None, **kwargs):
         """
         sources : ArrayLike
             list of (x, y, time) tuples
@@ -621,7 +636,7 @@ class SDOptimizer():
         kwargs : This is some python dark majic stuff which effectively lets you get a dictionary of named arguments
         """
         expanded_bounds = []
-        for i in range(0, len(initialization), 2):
+        for i in range(0, num_sources * 2, 2):
             expanded_bounds.extend(
                 [(bounds[0], bounds[1]), (bounds[2], bounds[3])]) # set up the appropriate number of bounds
         if "type" in kwargs:
@@ -639,53 +654,55 @@ class SDOptimizer():
                 algorithm = NSGAII(problem)
             # optimize the problem using 1,000 function evaluations
             algorithm.run(1000)
-            for solution in algorithm.result:
-                print("Solution : {}, Location : {}".format(solution.objectives, solution.variables))
+            if verbose:
+                for solution in algorithm.result:
+                    print("Solution : {}, Location : {}".format(solution.objectives, solution.variables))
 
             plt.scatter([s.objectives[0] for s in algorithm.result],
                 [s.objectives[1] for s in algorithm.result])
             plt.xlabel("The real function")
-            plt.ylabel("The norm of the values")
+            plt.ylabel("The number of detectors")
             plt.title("Pareto optimality curve for the two functions")
             plt.show()
-
-        values = []
-        # TODO see if there's a more efficient way to do this
-
-        def callback(xk, convergence):  # make the callback to record the values of the function
-            val = total_ret_func(xk)  # the objective function
-            values.append(val)
-
-        if genetic:
-            res = differential_evolution( # this is a genetic algorithm implementation
-                total_ret_func, expanded_bounds, callback=callback)
+            res = algorithm
         else:
-            res = minimize(total_ret_func, initialization,
-                           method='COBYLA', callback=callback)
+            values = []
+            # TODO see if there's a more efficient way to do this
 
-        if visualize:
-            plt.title("Objective function values over time")
-            plt.xlabel("Number of function evaluations")
-            plt.ylabel("Objective function")
-            plt.plot(values)
-            plt.show()
-            max_val = self.plot_inputs(sources, res.x)
-            self.visualize_all(total_ret_func, res.x, bounds, max_val=max_val)
-            xs = res.x
-            print("The bounds are now {}".format(expanded_bounds))
-            output = "The locations are: "
-            for i in range(0, xs.shape[0], 2):
-                output += ("({:.3f}, {:.3f}), ".format(xs[i], xs[i + 1]))
-            print(output)
+            def callback(xk, convergence):  # make the callback to record the values of the function
+                val = total_ret_func(xk)  # the objective function
+                values.append(val)
+
+            if genetic:
+                res = differential_evolution( # this is a genetic algorithm implementation
+                    total_ret_func, expanded_bounds, callback=callback)
+            else:
+                res = minimize(total_ret_func, initialization,
+                               method='COBYLA', callback=callback)
+
+            if visualize:
+                plt.title("Objective function values over time")
+                plt.xlabel("Number of function evaluations")
+                plt.ylabel("Objective function")
+                plt.plot(values)
+                plt.show()
+                max_val = self.plot_inputs(sources, res.x)
+                self.visualize_all(total_ret_func, res.x, bounds, max_val=max_val)
+                xs = res.x
+                print("The bounds are now {}".format(expanded_bounds))
+                output = "The locations are: "
+                for i in range(0, xs.shape[0], 2):
+                    output += ("({:.3f}, {:.3f}), ".format(xs[i], xs[i + 1]))
+                print(output)
         return res
 
-    def evaluate_optimization(self, sources, bounds, initialization,
+    def evaluate_optimization(self, sources, bounds, num_sources,
                  genetic=True, visualize=True, num_iterations=10):
         vals = []
         locs = []
         iterations = []
         for i in trange(num_iterations):
-            res = self.optimize(sources, bounds, initialization, genetic=genetic, visualize=False)
+            res = self.optimize(sources, bounds, num_sources, genetic=genetic, visualize=False)
             vals.append(res.fun)
             locs.append(res.x)
             iterations.append(res.nit)
