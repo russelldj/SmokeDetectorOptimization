@@ -1,29 +1,29 @@
 #!/usr/bin/env python
 # coding: utf-8
+from constants import *  # TODO fix this
+from functions import make_location_objective, make_counting_objective, make_lookup, make_total_lookup_function
+from visualization import show_optimization_statistics
+from time import sleep
+from tqdm.notebook import trange, tqdm  # For plotting progress
+from platypus import *  # TODO fix this terrible practice
+from mpl_toolkits import mplot3d
+from scipy.interpolate import griddata
+from scipy.optimize import minimize, differential_evolution, rosen, rosen_der, fmin_l_bfgs_b
+import os
+import glob
+import logging
+import pdb
+import scipy
+import matplotlib.animation as animation
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 import io
 import pandas as pd
 import numpy as np
 import matplotlib
+import warnings
 matplotlib.use('module://ipykernel.pylab.backend_inline')
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-import matplotlib.animation as animation
-import scipy
-import pdb
-import logging
-import glob
-import os
-from scipy.optimize import minimize, differential_evolution, rosen, rosen_der, fmin_l_bfgs_b
-from scipy.interpolate import griddata
-from mpl_toolkits import mplot3d
 #from platypus import NSGAII, Problem, Real, Binary, Integer
-from platypus import * # TODO fix this terrible practice
-from tqdm.notebook import trange, tqdm # For plotting progress
-from time import sleep
-
-from visualization import show_optimization_statistics
-from functions import make_location_objective, make_counting_objective, make_lookup, make_total_lookup_function
-from constants import * # TODO fix this
 
 
 class SDOptimizer():
@@ -71,6 +71,36 @@ class SDOptimizer():
         self.X = df['X'].values
         self.Y = df['Y'].values
 
+    def load_timestep_directory(self, directory):
+        """
+        directory : String
+            The folder containing the data files
+            Each of the files should represent a timestep and they must be
+            alphabetized
+        -----returns-----
+        data : TODO
+        """
+        files_pattern = os.path.join(directory, "*")
+        filenames = sorted(glob.glob(files_pattern))
+        self.all_times = []
+        self.max_consentrations = []
+        for filename in filenames:
+            df = pd.read_csv(filename, sep=' ', skipinitialspace=True)
+            df.drop(labels=df.columns[-1], inplace=True, axis=1)
+            df = df.rename(
+                columns={
+                    'nodenumber': 'N',
+                    'x-coordinate': 'X',
+                    'y-coordinate': 'Y',
+                    'z-coordinate': 'Z',
+                    'dpm-concentration': 'C'})
+            consentration = df['C'].values
+            self.max_consentrations.append(np.max(consentration))
+            self.all_times.append(df)
+        self.X = df['X'].values
+        # yes, this is Z. Must be a different reference frame
+        self.Y = df['Z'].values
+
     def load_directory(self, directory):
         """
         directory : String
@@ -87,17 +117,21 @@ class SDOptimizer():
             data.append(self.load_data(file))
         return data
 
-    def visualize(self, show=False):
+    def visualize(self, show=False, log=True):
         """
         TODO update this so it outputs a video
+        show : Boolean
+            Do a matplotlib plot of every frame
+        log : Boolean
+            plot the consentration on a log scale
         """
-        print(self.max_consentrations)
         max_consentration = max(self.max_consentrations)
-        print(max_consentration)
 
-        ims = []
-
-        for i, df in enumerate(self.all_times):
+        print("Writing output files to ./vis")
+        for i, df in tqdm(
+            enumerate(
+                self.all_times), total=len(
+                self.all_times)):  # this is just wrapping it in a progress bar
             plt.cla()
             plt.clf()
             plt.xlabel("X position")
@@ -106,10 +140,11 @@ class SDOptimizer():
             norm = mpl.colors.Normalize(vmin=0, vmax=1.0)
 
             cb = self.pmesh_plot(
-                df['X'],
-                df['Y'],
+                self.X,
+                self.Y,
                 df['C'],
                 plt,
+                log=log,
                 max_val=max_consentration)
             plt.colorbar(cb)  # Add a colorbar to a plot
             plt.savefig("vis/consentration{:03d}.png".format(i))
@@ -186,7 +221,7 @@ class SDOptimizer():
             plt.ylabel("Y location")
             plt.show()
             samples = np.random.choice(consentrations.shape[1], 10)
-            rows = consentrations[:,samples].transpose()
+            rows = consentrations[:, samples].transpose()
             for row in rows:
                 plt.plot(row)
             plt.title("random samples of consentration over time")
@@ -221,54 +256,66 @@ class SDOptimizer():
         z = z.flatten()
         return (x, y, z)
 
-
-
     def make_platypus_objective_function(self, sources):
-        total_ret_func = make_total_lookup_function(sources) # the function to be optimized
-        def multiobjective_func(x): # this is the double objective function
-            #return [total_ret_func(x), np.linalg.norm(x)]
+        total_ret_func = make_total_lookup_function(
+            sources)  # the function to be optimized
+
+        def multiobjective_func(x):  # this is the double objective function
+            # return [total_ret_func(x), np.linalg.norm(x)]
             return [total_ret_func(x), np.linalg.norm(x)]
 
-        num_inputs = len(sources) * 2 # there is an x, y for each source
-        NUM_OUPUTS = 2 # the default for now
-        problem = Problem(num_inputs, NUM_OUPUTS) # define the demensionality of input and output spaces
-        x, y, time = sources[0] # expand the first source
+        num_inputs = len(sources) * 2  # there is an x, y for each source
+        NUM_OUPUTS = 2  # the default for now
+        # define the demensionality of input and output spaces
+        problem = Problem(num_inputs, NUM_OUPUTS)
+        x, y, time = sources[0]  # expand the first source
         min_x = min(x)
         min_y = min(y)
         max_x = max(x)
         max_y = max(y)
-        print("min x : {}, max x : {}, min y : {}, max y : {}".format(min_x, max_x, min_y, max_y))
-        problem.types[::2] = Real(min_x, max_x) # This is the feasible region
+        print(
+            "min x : {}, max x : {}, min y : {}, max y : {}".format(
+                min_x,
+                max_x,
+                min_y,
+                max_y))
+        problem.types[::2] = Real(min_x, max_x)  # This is the feasible region
         problem.types[1::2] = Real(min_y, max_y)
         problem.function = multiobjective_func
         return problem
 
     def make_platypus_mixed_integer_objective_function(self, sources):
-        total_ret_func = make_total_lookup_function(sources, masked=True) # the function to be optimized
-        counting_func  = make_counting_objective()
-        def multiobjective_func(x): # this is the double objective function
+        total_ret_func = make_total_lookup_function(
+            sources, masked=True)  # the function to be optimized
+        counting_func = make_counting_objective()
+
+        def multiobjective_func(x):  # this is the double objective function
             return [total_ret_func(x), counting_func(x)]
 
-        num_inputs = len(sources) * 3 # there is an x, y, and a mask for each source
-        NUM_OUPUTS = 2 # the default for now
-        problem = Problem(num_inputs, NUM_OUPUTS) # define the demensionality of input and output spaces
-        x, y, time = sources[0] # expand the first source
+        # there is an x, y, and a mask for each source
+        num_inputs = len(sources) * 3
+        NUM_OUPUTS = 2  # the default for now
+        # define the demensionality of input and output spaces
+        problem = Problem(num_inputs, NUM_OUPUTS)
+        x, y, time = sources[0]  # expand the first source
         min_x = min(x)
         min_y = min(y)
         max_x = max(x)
         max_y = max(y)
-        print("min x : {}, max x : {}, min y : {}, max y : {}".format(min_x, max_x, min_y, max_y))
-        problem.types[0::3] = Real(min_x, max_x) # This is the feasible region
+        print(
+            "min x : {}, max x : {}, min y : {}, max y : {}".format(
+                min_x,
+                max_x,
+                min_y,
+                max_y))
+        problem.types[0::3] = Real(min_x, max_x)  # This is the feasible region
         problem.types[1::3] = Real(min_y, max_y)
-        problem.types[2::3] = Binary(1) # This appears to be inclusive, so this is really just (0, 1)
+        # This appears to be inclusive, so this is really just (0, 1)
+        problem.types[2::3] = Binary(1)
         problem.function = multiobjective_func
         return problem
 
-
-
-
-
-    def plot_inputs(self, inputs, optimized):
+    def plot_inputs(self, inputs, optimized, show_optimal=False):
         plt.cla()
         plt.clf()
         f, ax = self.get_square_axis(len(inputs))
@@ -276,10 +323,11 @@ class SDOptimizer():
         for i, (x, y, z) in enumerate(inputs):
             max_z = max(max_z, max(z))  # record this for later plotting
             cb = self.pmesh_plot(x, y, z, ax[i])
-            for j in range(0, len(optimized), 2):
-                detectors = ax[i].scatter(optimized[j], optimized[j + 1],
-                                          c='w', edgecolors='k')
-                ax[i].legend([detectors], ["optimized detectors"])
+            if show_optimal:
+                for j in range(0, len(optimized), 2):
+                    detectors = ax[i].scatter(optimized[j], optimized[j + 1],
+                                              c='w', edgecolors='k')
+                    ax[i].legend([detectors], ["optimized detectors"])
         f.colorbar(cb)
         f.suptitle("The time to alarm for each of the smoke sources")
         plt.show()
@@ -300,7 +348,7 @@ class SDOptimizer():
         num_x = np.ceil(np.sqrt(num))
         num_y = np.ceil(num / num_x)
         if is_3d:
-            f, ax = plt.subplots(int(num_y), int(num_x),  projection='3d')
+            f, ax = plt.subplots(int(num_y), int(num_x), projection='3d')
         else:
             f, ax = plt.subplots(int(num_y), int(num_x))
 
@@ -358,9 +406,11 @@ class SDOptimizer():
             max_val=None,
             num_samples=50,
             is_3d=False,
+            log=False,  # log scale for plotting
             cmap=plt.cm.inferno):
         """
         conveneince function to easily plot the sort of data we have
+
         """
         points = np.stack((xs, ys), axis=1)
         sample_points = (np.linspace(min(xs), max(xs), num_samples),
@@ -371,9 +421,20 @@ class SDOptimizer():
         interpolated = griddata(points, values, (flattened_xis, flattened_yis))
         reshaped_interpolated = np.reshape(interpolated, xis.shape)
         if max_val is not None:
-            norm = mpl.colors.Normalize(0, max_val)
+            if log:
+                EPSILON = 0.0000000001
+                norm = mpl.colors.LogNorm(
+                    EPSILON, max_val + EPSILON)  # avoid zero values
+                reshaped_interpolated += EPSILON
+            else:
+                norm = mpl.colors.Normalize(0, max_val)
         else:
-            norm = mpl.colors.Normalize()  # default
+            if log:
+                norm = mpl.colors.LogNorm()
+                EPSILON = 0.0000000001
+                reshaped_interpolated += EPSILON
+            else:
+                norm = mpl.colors.Normalize()  # default
 
         if self.is3d:
             plt.cla()
@@ -417,13 +478,27 @@ class SDOptimizer():
 
         fig = plt.figure()
         ax = plt.axes(projection='3d')
-        cb = ax.plot_surface(xis, yis, reshaped_interpolated,cmap=cmap, norm=norm, edgecolor='none')
+        cb = ax.plot_surface(
+            xis,
+            yis,
+            reshaped_interpolated,
+            cmap=cmap,
+            norm=norm,
+            edgecolor='none')
         ax.set_title('Surface plot')
         plt.show()
         return cb  # return the colorbar
 
-    def visualize_all(self, objective_func, optimized_detectors,
-                      bounds, max_val=None, num_samples=30, verbose=False, is3d=False):
+    def visualize_all(
+            self,
+            objective_func,
+            optimized_detectors,
+            bounds,
+            max_val=None,
+            num_samples=30,
+            verbose=False,
+            is3d=False,
+            log=False):
         """
         The goal is to do a sweep with each of the detectors leaving the others fixed
         """
@@ -459,7 +534,7 @@ class SDOptimizer():
             else:
                 which_plot = ax
 
-            cb = self.pmesh_plot(grid_xs, grid_ys, times, which_plot, max_val)
+            cb = self.pmesh_plot(grid_xs, grid_ys, times, which_plot, max_val, log=log)
 
             fixed = which_plot.scatter(
                 selected_detectors[::2], selected_detectors[1::2], c='w', edgecolors='k')
@@ -488,38 +563,76 @@ class SDOptimizer():
             whether to use a genetic algorithm
         masked : Boolean
             Whether the input is masked
-        kwargs : This is some python dark majic stuff which effectively lets you get a dictionary of named arguments
+        kwargs : This is some python dark magic stuff which effectively lets you get a dictionary of named arguments
         """
+
+        # TODO this is just a HACK to get around the fact that the bounds should really be computed from the data
+        COMPUTE_BOUNDS = True
+        if COMPUTE_BOUNDS:
+            min_x = np.min(self.X)
+            max_x = np.max(self.X)
+            min_y = np.min(self.Y)
+            max_y = np.max(self.Y)
+            bounds = [min_x, max_x, min_y, max_y]
+            warnings.warn("Bounds are computed from the data and will soon be removed as a positional argument", FutureWarning)
+
+
         expanded_bounds = []
         for i in range(0, num_sources * 2, 2):
+            # set up the appropriate number of bounds
             expanded_bounds.extend(
-                [(bounds[0], bounds[1]), (bounds[2], bounds[3])]) # set up the appropriate number of bounds
+                [(bounds[0], bounds[1]), (bounds[2], bounds[3])])
         if "type" in kwargs:
-            total_ret_func = make_total_lookup_function(sources, type=kwargs["type"]) # the function to be optimized
+            total_ret_func = make_total_lookup_function(
+                sources, type=kwargs["type"])  # the function to be optimized
         else:
-            total_ret_func = make_total_lookup_function(sources) # the function to be optimized
+            total_ret_func = make_total_lookup_function(
+                sources)  # the function to be optimized
         if platypus:
             if masked:
-                problem = self.make_platypus_mixed_integer_objective_function(sources) #TODO remove this
+                problem = self.make_platypus_mixed_integer_objective_function(
+                    sources)  # TODO remove this
                 # it complains about needing a defined mutator for mixed problems
-                # Suggestion taken from https://github.com/Project-Platypus/Platypus/issues/31
-                algorithm = NSGAII(problem, variator=CompoundOperator(SBX(), HUX(), PM(), BitFlip()))
+                # Suggestion taken from
+                # https://github.com/Project-Platypus/Platypus/issues/31
+                algorithm = NSGAII(
+                    problem, variator=CompoundOperator(
+                        SBX(), HUX(), PM(), BitFlip()))
             else:
-                problem = self.make_platypus_objective_function(sources) #TODO remove this
+                problem = self.make_platypus_objective_function(
+                    sources)  # TODO remove this
                 algorithm = NSGAII(problem)
             # optimize the problem using 1,000 function evaluations
             algorithm.run(1000)
             if verbose:
                 for solution in algorithm.result:
-                    print("Solution : {}, Location : {}".format(solution.objectives, solution.variables))
+                    print(
+                        "Solution : {}, Location : {}".format(
+                            solution.objectives,
+                            solution.variables))
 
             plt.scatter([s.objectives[0] for s in algorithm.result],
-                [s.objectives[1] for s in algorithm.result])
+                        [s.objectives[1] for s in algorithm.result])
             plt.xlabel("The real function")
             plt.ylabel("The number of detectors")
             plt.title("Pareto optimality curve for the two functions")
             plt.show()
             res = algorithm
+            if visualize:
+                plt.title("Objective function values over time")
+                plt.xlabel("Number of function evaluations")
+                plt.ylabel("Objective function")
+                plt.plot(values)
+                plt.show()
+                max_val = self.plot_inputs(sources, res.x)
+                self.visualize_all(
+                    total_ret_func, res.x, bounds, max_val=max_val)
+                xs = res.x
+                print("The bounds are now {}".format(expanded_bounds))
+                output = "The locations are: "
+                for i in range(0, xs.shape[0], 2):
+                    output += ("({:.3f}, {:.3f}), ".format(xs[i], xs[i + 1]))
+                print(output)
         else:
             values = []
             # TODO see if there's a more efficient way to do this
@@ -529,7 +642,7 @@ class SDOptimizer():
                 values.append(val)
 
             if genetic:
-                res = differential_evolution( # this is a genetic algorithm implementation
+                res = differential_evolution(  # this is a genetic algorithm implementation
                     total_ret_func, expanded_bounds, callback=callback)
             else:
                 res = minimize(total_ret_func, initialization,
@@ -542,7 +655,8 @@ class SDOptimizer():
                 plt.plot(values)
                 plt.show()
                 max_val = self.plot_inputs(sources, res.x)
-                self.visualize_all(total_ret_func, res.x, bounds, max_val=max_val)
+                self.visualize_all(
+                    total_ret_func, res.x, bounds, max_val=max_val)
                 xs = res.x
                 print("The bounds are now {}".format(expanded_bounds))
                 output = "The locations are: "
@@ -552,12 +666,17 @@ class SDOptimizer():
         return res
 
     def evaluate_optimization(self, sources, bounds, num_sources,
-                 genetic=True, visualize=True, num_iterations=10):
+                              genetic=True, visualize=True, num_iterations=10):
         vals = []
         locs = []
         iterations = []
         for i in trange(num_iterations):
-            res = self.optimize(sources, bounds, num_sources, genetic=genetic, visualize=False)
+            res = self.optimize(
+                sources,
+                bounds,
+                num_sources,
+                genetic=genetic,
+                visualize=False)
             vals.append(res.fun)
             locs.append(res.x)
             iterations.append(res.nit)
@@ -577,9 +696,8 @@ class SDOptimizer():
         self.is3d = value
 
     def test_tqdm(self):
-        for _ in trange(30): # For plotting progress
+        for _ in trange(30):  # For plotting progress
             sleep(0.5)
-
 
 
 if __name__ == "__main__":  # Only run if this was run from the commmand line
