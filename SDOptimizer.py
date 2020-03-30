@@ -82,6 +82,9 @@ class SDOptimizer():
         """
         files_pattern = os.path.join(directory, "*")
         filenames = sorted(glob.glob(files_pattern))
+        if len(filenames) == 0:
+            raise ValueError("There were no files in the specified directory : {}".format(
+                directory))
         self.all_times = []
         self.max_consentrations = []
         for filename in filenames:
@@ -534,7 +537,13 @@ class SDOptimizer():
             else:
                 which_plot = ax
 
-            cb = self.pmesh_plot(grid_xs, grid_ys, times, which_plot, max_val, log=log)
+            cb = self.pmesh_plot(
+                grid_xs,
+                grid_ys,
+                times,
+                which_plot,
+                max_val,
+                log=log)
 
             fixed = which_plot.scatter(
                 selected_detectors[::2], selected_detectors[1::2], c='w', edgecolors='k')
@@ -548,7 +557,7 @@ class SDOptimizer():
         plt.colorbar(cb, ax=ax[-1])
         plt.show()
 
-    def optimize(self, sources, bounds, num_sources,
+    def optimize(self, sources, num_sources, bounds=None,
                  genetic=True, platypus=False, visualize=True,
                  verbose=False, is3d=False, masked=False,
                  intialization=None, **kwargs):
@@ -556,26 +565,25 @@ class SDOptimizer():
         sources : ArrayLike
             list of (x, y, time) tuples
         bounds : ArrayLike
-            [x_low, x_high, y_low, y_high]
+            [x_low, x_high, y_low, y_high], will be computed from self.X, self.Y if None
         initialization : ArrayLike
             [x1, y1, x2, y2,...] The initial location for the optimization
         genetic : Boolean
             whether to use a genetic algorithm
         masked : Boolean
-            Whether the input is masked
+            Whether the input is masked TODO figure out what I meant
+        platypus : Boolean
+            Should really be called multiobjective. Runs multiobjective
         kwargs : This is some python dark magic stuff which effectively lets you get a dictionary of named arguments
         """
 
-        # TODO this is just a HACK to get around the fact that the bounds should really be computed from the data
-        COMPUTE_BOUNDS = True
-        if COMPUTE_BOUNDS:
+        # TODO validate that this is correct in all cases
+        if bounds is None:
             min_x = np.min(self.X)
             max_x = np.max(self.X)
             min_y = np.min(self.Y)
             max_y = np.max(self.Y)
             bounds = [min_x, max_x, min_y, max_y]
-            warnings.warn("Bounds are computed from the data and will soon be removed as a positional argument", FutureWarning)
-
 
         expanded_bounds = []
         for i in range(0, num_sources * 2, 2):
@@ -619,20 +627,7 @@ class SDOptimizer():
             plt.show()
             res = algorithm
             if visualize:
-                plt.title("Objective function values over time")
-                plt.xlabel("Number of function evaluations")
-                plt.ylabel("Objective function")
-                plt.plot(values)
-                plt.show()
-                max_val = self.plot_inputs(sources, res.x)
-                self.visualize_all(
-                    total_ret_func, res.x, bounds, max_val=max_val)
-                xs = res.x
-                print("The bounds are now {}".format(expanded_bounds))
-                output = "The locations are: "
-                for i in range(0, xs.shape[0], 2):
-                    output += ("({:.3f}, {:.3f}), ".format(xs[i], xs[i + 1]))
-                print(output)
+                warnings.warn("Can't visualize the objective values for a multiobjective run", UserWarning)
         else:
             values = []
             # TODO see if there's a more efficient way to do this
@@ -665,7 +660,7 @@ class SDOptimizer():
                 print(output)
         return res
 
-    def evaluate_optimization(self, sources, bounds, num_sources,
+    def evaluate_optimization(self, sources, num_sources, bounds=None,
                               genetic=True, visualize=True, num_iterations=10):
         vals = []
         locs = []
@@ -673,8 +668,8 @@ class SDOptimizer():
         for i in trange(num_iterations):
             res = self.optimize(
                 sources,
-                bounds,
                 num_sources,
+                bounds=bounds,
                 genetic=genetic,
                 visualize=False)
             vals.append(res.fun)
