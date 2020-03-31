@@ -22,6 +22,7 @@ import pandas as pd
 import numpy as np
 import matplotlib
 import warnings
+import copy
 matplotlib.use('module://ipykernel.pylab.backend_inline')
 #from platypus import NSGAII, Problem, Real, Binary, Integer
 
@@ -158,6 +159,8 @@ class SDOptimizer():
             self,
             flip_x=False,
             flip_y=False,
+            x_shift=0,
+            y_shift=0,
             infeasible_locations=None,
             alarm_threshold=ALARM_THRESHOLD,
             visualize=False):
@@ -201,13 +204,15 @@ class SDOptimizer():
         if flip_x:
             X = max(self.X) - self.X + min(self.X)
         else:
-            X = self.X  # Don't want to mutate the original
+            X = copy.copy(self.X)  # Don't want to mutate the original
 
         if flip_y:
             Y = max(self.Y) - self.Y + min(self.Y)
         else:
-            Y = self.Y
+            Y = copy.copy(self.Y)
 
+        X += x_shift
+        Y += y_shift
         if infeasible_locations is not None:
             for infeasible in infeasible_locations:
                 x1, y1, x2, y2 = infeasible
@@ -215,6 +220,7 @@ class SDOptimizer():
                     X > x1, X < x2), np.logical_and(Y > y1, Y < y2))
                 which_infeasible = np.nonzero(infeasible_locations)
                 time_to_alarm[which_infeasible] = INFEASIBLE_VALUE
+
 
         if visualize:
             cb = self.pmesh_plot(X, Y, time_to_alarm, plt, num_samples=70)
@@ -259,13 +265,32 @@ class SDOptimizer():
         z = z.flatten()
         return (x, y, z)
 
-    def make_platypus_objective_function(self, sources):
+    def make_platypus_objective_function(self, sources, type="basic", bad_sources=[]):
+        """
+        sources
+
+        bad_sources : ArrayLike[Sources]
+            These are the ones which we don't want to be near
+        """
+        if type=="basic":
+            raise NotImplementedError("I'm not sure I'll ever do this")
+            #return self.make_platypus_objective_function_basic(sources)
+        elif type=="counting":
+            return self.make_platypus_objective_function_counting(sources)
+        elif type=="competing_function":
+            return self.make_platypus_objective_function_competing_function(sources, bad_sources)
+        else:
+            raise ValueError("The type : {} is not an option".format(type))
+
+    def make_platypus_objective_function_competing_function(self, sources, bad_sources=[]):
         total_ret_func = make_total_lookup_function(
             sources)  # the function to be optimized
+        bad_sources_func = make_total_lookup_function(
+            bad_sources, type="fastest"
+            )  # the function to be optimized
 
         def multiobjective_func(x):  # this is the double objective function
-            # return [total_ret_func(x), np.linalg.norm(x)]
-            return [total_ret_func(x), np.linalg.norm(x)]
+            return [total_ret_func(x), bad_sources_func(x)]
 
         num_inputs = len(sources) * 2  # there is an x, y for each source
         NUM_OUPUTS = 2  # the default for now
@@ -285,9 +310,13 @@ class SDOptimizer():
         problem.types[::2] = Real(min_x, max_x)  # This is the feasible region
         problem.types[1::2] = Real(min_y, max_y)
         problem.function = multiobjective_func
+        problem.directions[1] = Problem.MAXIMIZE # the second function should be maximized rather than minimized
         return problem
 
-    def make_platypus_mixed_integer_objective_function(self, sources):
+    def make_platypus_objective_function_counting(self, sources, times_more_detectors=1):
+        """
+        This balances the number of detectors with the quality of the outcome
+        """
         total_ret_func = make_total_lookup_function(
             sources, masked=True)  # the function to be optimized
         counting_func = make_counting_objective()
@@ -295,8 +324,8 @@ class SDOptimizer():
         def multiobjective_func(x):  # this is the double objective function
             return [total_ret_func(x), counting_func(x)]
 
-        # there is an x, y, and a mask for each source
-        num_inputs = len(sources) * 3
+        # there is an x, y, and a mask for each source so there must be three times more input variables
+        num_inputs = len(sources) * 3 * times_more_detectors # the upper bound on the number of detectors n times the number of sources
         NUM_OUPUTS = 2  # the default for now
         # define the demensionality of input and output spaces
         problem = Problem(num_inputs, NUM_OUPUTS)
@@ -559,7 +588,7 @@ class SDOptimizer():
 
     def optimize(self, sources, num_sources, bounds=None,
                  genetic=True, platypus=False, visualize=True,
-                 verbose=False, is3d=False, masked=False,
+                 verbose=False, is3d=False, multiobjective_type="counting",
                  intialization=None, **kwargs):
         """
         sources : ArrayLike
@@ -579,10 +608,12 @@ class SDOptimizer():
 
         # TODO validate that this is correct in all cases
         if bounds is None:
-            min_x = np.min(self.X)
-            max_x = np.max(self.X)
-            min_y = np.min(self.Y)
-            max_y = np.max(self.Y)
+            X = sources[0][0]
+            Y = sources[0][1]
+            min_x = np.min(X)
+            max_x = np.max(X)
+            min_y = np.min(Y)
+            max_y = np.max(Y)
             bounds = [min_x, max_x, min_y, max_y]
 
         expanded_bounds = []
@@ -597,19 +628,26 @@ class SDOptimizer():
             total_ret_func = make_total_lookup_function(
                 sources)  # the function to be optimized
         if platypus:
-            if masked:
-                problem = self.make_platypus_mixed_integer_objective_function(
-                    sources)  # TODO remove this
+            if multiobjective_type=="counting":
+                problem = self.make_platypus_objective_function_counting(
+                    sources, "counting")  # TODO remove this
                 # it complains about needing a defined mutator for mixed problems
                 # Suggestion taken from
                 # https://github.com/Project-Platypus/Platypus/issues/31
                 algorithm = NSGAII(
                     problem, variator=CompoundOperator(
                         SBX(), HUX(), PM(), BitFlip()))
-            else:
+                second_objective="The number of detectors"
+            elif multiobjective_type=="competing_function":
+                if "bad_sources" not in kwargs:
+                    raise ValueError("bad_sources should have been included in the kwargs")
+                bad_sources=kwargs["bad_sources"]
                 problem = self.make_platypus_objective_function(
-                    sources)  # TODO remove this
+                    sources, "competing_function", bad_sources=bad_sources)  # TODO remove this
                 algorithm = NSGAII(problem)
+                second_objective="The time to alarm for the exercise equiptment"
+            else:
+                raise ValueError("The type : {} was not valid".format(multiobjective_type))
             # optimize the problem using 1,000 function evaluations
             algorithm.run(1000)
             if verbose:
@@ -621,8 +659,8 @@ class SDOptimizer():
 
             plt.scatter([s.objectives[0] for s in algorithm.result],
                         [s.objectives[1] for s in algorithm.result])
-            plt.xlabel("The real function")
-            plt.ylabel("The number of detectors")
+            plt.xlabel("The time to alarm")
+            plt.ylabel(second_objective)
             plt.title("Pareto optimality curve for the two functions")
             plt.show()
             res = algorithm

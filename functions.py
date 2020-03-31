@@ -1,4 +1,5 @@
 import numpy as np
+import pdb
 from constants import *
 
 
@@ -23,6 +24,9 @@ def make_location_objective(masked):
     return location_evaluation
 
 def make_counting_objective():
+    """
+    count the number of sources which are turned on
+    """
     def counting_func(xyons):
         val = 0
         for i in range(0, len(xyons), 3):
@@ -122,15 +126,20 @@ def make_total_lookup_function(
             time_for_each_source = np.amin(all_times, axis=0)
             worst_source = np.amax(time_for_each_source)
             ret_val = worst_source
-        if type == "second":
+        elif type == "second":
             time_for_each_source = np.amin(all_times, axis=0)
             second_source = np.sort(time_for_each_source)[1]
             ret_val = second_source
-        if type == "softened":
+        elif type == "softened":
             time_for_each_source = np.amin(all_times, axis=0)
             sorted = np.sort(time_for_each_source)[1]
             ALPHA = 0.3
             ret_val = (sorted[0] + ALPHA * sorted[1]) / (1 + ALPHA)
+        elif type=="fastest":
+            #print(all_times)
+            ret_val = np.amin(all_times) # this just cares about the source-detector pair that alarms fastest
+        else:
+            raise ValueError("type is : {} which is not included".format(type))
         if verbose:
             print("all of the times are {}".format(all_times))
             print("The quickest detction for each source is {}".format(

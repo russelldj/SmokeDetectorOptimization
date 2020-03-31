@@ -1,2 +1,4 @@
 # exclude the outputs
 /vis/**
+vals.npy
+locs.npy
