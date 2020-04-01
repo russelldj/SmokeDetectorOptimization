@@ -84,8 +84,8 @@ class SDOptimizer():
         files_pattern = os.path.join(directory, "*")
         filenames = sorted(glob.glob(files_pattern))
         if len(filenames) == 0:
-            raise ValueError("There were no files in the specified directory : {}".format(
-                directory))
+            raise ValueError(
+                "There were no files in the specified directory : {}".format(directory))
         self.all_times = []
         self.max_consentrations = []
         for filename in filenames:
@@ -163,7 +163,8 @@ class SDOptimizer():
             y_shift=0,
             infeasible_locations=None,
             alarm_threshold=ALARM_THRESHOLD,
-            visualize=False):
+            visualize=False,
+            num_samples_visualized=10):
         """
         file_x, flip_y : Boolean
             Should the data be flipped about the corresponding axis for augmentation
@@ -173,6 +174,8 @@ class SDOptimizer():
             What consentraion will trigger the detector
         visualize : Boolean
             Should it be shown
+        num_samples_visualized : into
+            the number of scattered points to visualize the concentration over time for
         """
         consentrations = np.asarray(
             [x['C'].values for x in self.all_times])  # Get all of the consentrations
@@ -223,13 +226,26 @@ class SDOptimizer():
 
 
         if visualize:
-            cb = self.pmesh_plot(X, Y, time_to_alarm, plt, num_samples=70)
+            cb = self.pmesh_plot(
+                X,
+                Y,
+                time_to_alarm,
+                plt,
+                num_samples=70,
+                cmap=mpl.cm.Greys)  # choose grey to plot color over
             plt.colorbar(cb)  # Add a colorbar to a plot
             plt.title("Time to alarm versus location on the wall")
             plt.xlabel("X location")
             plt.ylabel("Y location")
+            samples = np.random.choice(
+                consentrations.shape[1],
+                num_samples_visualized)
+            # plot the sampled locations
+            xs = X[samples]
+            ys = Y[samples]
+            for x_, y_ in zip(xs, ys):  # dashed to avoid confusion
+                plt.scatter(x_, y_)
             plt.show()
-            samples = np.random.choice(consentrations.shape[1], 10)
             rows = consentrations[:, samples].transpose()
             for row in rows:
                 plt.plot(row)
@@ -265,29 +281,32 @@ class SDOptimizer():
         z = z.flatten()
         return (x, y, z)
 
-    def make_platypus_objective_function(self, sources, type="basic", bad_sources=[]):
+    def make_platypus_objective_function(
+            self, sources, type="basic", bad_sources=[]):
         """
         sources
 
         bad_sources : ArrayLike[Sources]
             These are the ones which we don't want to be near
         """
-        if type=="basic":
+        if type == "basic":
             raise NotImplementedError("I'm not sure I'll ever do this")
-            #return self.make_platypus_objective_function_basic(sources)
-        elif type=="counting":
+            # return self.make_platypus_objective_function_basic(sources)
+        elif type == "counting":
             return self.make_platypus_objective_function_counting(sources)
-        elif type=="competing_function":
-            return self.make_platypus_objective_function_competing_function(sources, bad_sources)
+        elif type == "competing_function":
+            return self.make_platypus_objective_function_competing_function(
+                sources, bad_sources)
         else:
             raise ValueError("The type : {} is not an option".format(type))
 
-    def make_platypus_objective_function_competing_function(self, sources, bad_sources=[]):
+    def make_platypus_objective_function_competing_function(
+            self, sources, bad_sources=[]):
         total_ret_func = make_total_lookup_function(
             sources)  # the function to be optimized
         bad_sources_func = make_total_lookup_function(
             bad_sources, type="fastest"
-            )  # the function to be optimized
+        )  # the function to be optimized
 
         def multiobjective_func(x):  # this is the double objective function
             return [total_ret_func(x), bad_sources_func(x)]
@@ -310,10 +329,12 @@ class SDOptimizer():
         problem.types[::2] = Real(min_x, max_x)  # This is the feasible region
         problem.types[1::2] = Real(min_y, max_y)
         problem.function = multiobjective_func
-        problem.directions[1] = Problem.MAXIMIZE # the second function should be maximized rather than minimized
+        # the second function should be maximized rather than minimized
+        problem.directions[1] = Problem.MAXIMIZE
         return problem
 
-    def make_platypus_objective_function_counting(self, sources, times_more_detectors=1):
+    def make_platypus_objective_function_counting(
+            self, sources, times_more_detectors=1):
         """
         This balances the number of detectors with the quality of the outcome
         """
@@ -324,8 +345,11 @@ class SDOptimizer():
         def multiobjective_func(x):  # this is the double objective function
             return [total_ret_func(x), counting_func(x)]
 
-        # there is an x, y, and a mask for each source so there must be three times more input variables
-        num_inputs = len(sources) * 3 * times_more_detectors # the upper bound on the number of detectors n times the number of sources
+        # there is an x, y, and a mask for each source so there must be three
+        # times more input variables
+        # the upper bound on the number of detectors n times the number of
+        # sources
+        num_inputs = len(sources) * 3 * times_more_detectors
         NUM_OUPUTS = 2  # the default for now
         # define the demensionality of input and output spaces
         problem = Problem(num_inputs, NUM_OUPUTS)
@@ -628,7 +652,7 @@ class SDOptimizer():
             total_ret_func = make_total_lookup_function(
                 sources)  # the function to be optimized
         if platypus:
-            if multiobjective_type=="counting":
+            if multiobjective_type == "counting":
                 problem = self.make_platypus_objective_function_counting(
                     sources, "counting")  # TODO remove this
                 # it complains about needing a defined mutator for mixed problems
@@ -637,17 +661,19 @@ class SDOptimizer():
                 algorithm = NSGAII(
                     problem, variator=CompoundOperator(
                         SBX(), HUX(), PM(), BitFlip()))
-                second_objective="The number of detectors"
-            elif multiobjective_type=="competing_function":
+                second_objective = "The number of detectors"
+            elif multiobjective_type == "competing_function":
                 if "bad_sources" not in kwargs:
-                    raise ValueError("bad_sources should have been included in the kwargs")
-                bad_sources=kwargs["bad_sources"]
+                    raise ValueError(
+                        "bad_sources should have been included in the kwargs")
+                bad_sources = kwargs["bad_sources"]
                 problem = self.make_platypus_objective_function(
                     sources, "competing_function", bad_sources=bad_sources)  # TODO remove this
                 algorithm = NSGAII(problem)
-                second_objective="The time to alarm for the exercise equiptment"
+                second_objective = "The time to alarm for the exercise equiptment"
             else:
-                raise ValueError("The type : {} was not valid".format(multiobjective_type))
+                raise ValueError(
+                    "The type : {} was not valid".format(multiobjective_type))
             # optimize the problem using 1,000 function evaluations
             algorithm.run(1000)
             if verbose:
@@ -665,7 +691,9 @@ class SDOptimizer():
             plt.show()
             res = algorithm
             if visualize:
-                warnings.warn("Can't visualize the objective values for a multiobjective run", UserWarning)
+                warnings.warn(
+                    "Can't visualize the objective values for a multiobjective run",
+                    UserWarning)
         else:
             values = []
             # TODO see if there's a more efficient way to do this
