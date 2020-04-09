@@ -96,18 +96,15 @@ def xyz_to_spherical(xyz):
     r_elev_ax[:, 2] = np.arctan2(xyz[:, 1], xyz[:, 0])
     return r_elev_ax
 
-#def project_to_sphere(xyz, costs):
-#    """
-#    all_points : 3 x n array
-#        each row is a dimension, assumed to be x, y, z
-#    all_costs : (n,) array
-#        a cost for each point
-#    """
-#
-#    r_elev_ax = spherical_xyz(xyz)
-#    elev_ax_c = np.hstack((r_elev_ax[:, 1:], np.expand_dims(costs, axis=1)))
-#    print("elev_ax_c.shape : {}".format(elev_ax_c.shape))
-#    return elev_ax_c
+def spherical_to_xyz(elev_az):
+    phi = elev_az[:,0] # check that these aren't switched and migrate to all one convention
+    theta = elev_az[:,1]
+    x = np.sin(phi) * np.cos(theta)
+    y = np.sin(phi) * np.sin(theta)
+    z = np.cos(phi)
+    xyz = np.vstack((x, y, z))
+    return xyz.transpose()
+
 
 def make_cost_func(is_manifold=False):
     """
@@ -119,11 +116,19 @@ def make_cost_func(is_manifold=False):
     all_faces = create_cube(*BOUNDS)
     cost_per_point = np.sum(all_faces, axis=1)
     r_elev_ax = xyz_to_spherical(all_faces)
+    new_xyz = spherical_to_xyz(r_elev_ax[:, 1:])
+    print("xyz mins : {}".format(np.min(all_faces, axis=0)))
+    print("xyz maxes : {}".format(np.max(all_faces, axis=0)))
+    print(np.max(cost_per_point))
+
     print("mins : {}".format(np.min(r_elev_ax, axis=0)))
     print("maxes : {}".format(np.max(r_elev_ax, axis=0)))
+    print(r_elev_ax.shape)
     elev = r_elev_ax[:,1]
     ax = r_elev_ax[:,2]
     cost_func_elev_az = make_total_lookup_function([(elev, ax, cost_per_point)]) # maps from a elev, ax to a cost
+    plt.scatter(elev, ax, c=cost_per_point)
+    plt.pause(1)
     if not is_manifold:
         return cost_func_elev_az
 
@@ -137,21 +142,33 @@ def make_cost_func(is_manifold=False):
 
     return cost_fun_xyz
 
+
 cost_fun = make_cost_func()
-pdb.set_trace()
+point = np.array([[1, 1, 1]])
+print(point.shape)
+r_elev_ax = xyz_to_spherical(point)
+elev_ax = r_elev_ax[0, 1:]
+print(cost_fun(np.array([0, 1])))
+print(cost_fun(np.array([np.pi / 2.0, np.pi / 4.0])))
+print(cost_fun(elev_ax))
+
+BOUNDS = [[-1, 1], [-1, 1], [-1, 1]]
+all_faces = create_cube(*BOUNDS)
+cost_per_point = np.sum(all_faces, axis=1)
+r_elev_ax = xyz_to_spherical(all_faces)
+new_xyz = spherical_to_xyz(r_elev_ax[:, 1:])
 
 fig = plt.figure()
 ax = plt.axes(projection='3d')
 
-all_faces = create_cube([-1, 1], [-1, 1], [-1, 1])
-c = np.sum(all_faces, axis=1)
-project_to_sphere(all_faces, c)
-ax.scatter(all_faces[:, 0], all_faces[:, 1], all_faces[:, 2], c=c)
+ax.scatter(new_xyz[:, 0], new_xyz[:, 1], new_xyz[:, 2], c=cost_per_point)
 fig.show()
 pdb.set_trace()
 
+
 # (2) Define the cost function (here using autograd.numpy)
 def cost(X): return np.sum(X)
+
 
 problem = Problem(manifold=manifold, cost=cost)
 
