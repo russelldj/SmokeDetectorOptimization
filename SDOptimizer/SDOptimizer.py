@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
-from SDOptimizer.constants import BIG_NUMBER, PLOT_TITLES, ALARM_THRESHOLD, PAPER_READY, INFEASIBLE_VALUE  # TODO fix this
+from SDOptimizer.constants import DATA_FILE, PLOT_TITLES, ALARM_THRESHOLD, PAPER_READY, INFEASIBLE_MULTIPLE, NEVER_ALARMED_MULTIPLE
 from SDOptimizer.functions import make_location_objective, make_counting_objective, make_lookup, make_total_lookup_function
 from SDOptimizer.visualization import show_optimization_statistics, show_optimization_runs
 from time import sleep
@@ -18,6 +18,9 @@ import scipy
 import matplotlib.animation as animation
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import
+
+from importlib import reload
 import io
 import pandas as pd
 import numpy as np
@@ -32,6 +35,10 @@ class SDOptimizer():
         self.logger = logging.getLogger('main')
         self.logger.debug("Instantiated the optimizer")
         self.is3d = False
+        self.X = None
+        self.Y = None
+        self.Z = None
+        self.time_to_alarm = None
 
     def load_data(self, data_file):
         """
@@ -71,6 +78,7 @@ class SDOptimizer():
         # The x and y values are the same for all timesteps
         self.X = df['X'].values
         self.Y = df['Y'].values
+        self.Z = df['Z'].values
 
     def load_timestep_directory(self, directory):
         """
@@ -103,7 +111,9 @@ class SDOptimizer():
             self.all_times.append(df)
         self.X = df['X'].values
         # yes, this is Z. Must be a different reference frame
-        self.Y = df['Z'].values
+        #self.Y = df['Z'].values
+        self.Y = df['Y'].values
+        self.Z = df['Z'].values
 
     def load_directory(self, directory):
         """
@@ -155,6 +165,13 @@ class SDOptimizer():
             if show:
                 plt.show()
 
+    def visualize_3D(self):
+        matplotlib.use('TkAgg')
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.scatter(self.X, self.Y, self.Z, c=self.time_to_alarm)
+        plt.show()
+
     def get_time_to_alarm(
             self,
             flip_x=False,
@@ -185,6 +202,7 @@ class SDOptimizer():
                 concentrations.shape[1]))
 
         # Determine which entries have higher concentrations
+        num_timesteps = concentrations.shape[0]
         alarmed = concentrations > alarm_threshold
         nonzero = np.nonzero(alarmed)  # determine where the non zero entries
         # this is pairs indicating that it alarmed at that time and location
@@ -201,7 +219,7 @@ class SDOptimizer():
                 time_to_alarm.append(min(alarmed_times))
             else:
                 # this represents a location which was never alarmed
-                time_to_alarm.append(BIG_NUMBER)
+                time_to_alarm.append(num_timesteps * NEVER_ALARMED_MULTIPLE)
 
         time_to_alarm = np.array(time_to_alarm)
         if flip_x:
@@ -222,7 +240,8 @@ class SDOptimizer():
                 infeasible_locations = np.logical_and(np.logical_and(
                     X > x1, X < x2), np.logical_and(Y > y1, Y < y2))
                 which_infeasible = np.nonzero(infeasible_locations)
-                time_to_alarm[which_infeasible] = INFEASIBLE_VALUE
+                time_to_alarm[which_infeasible] = num_timesteps * \
+                    INFEASIBLE_MULTIPLE
 
         if visualize:
             cb = self.pmesh_plot(
@@ -272,6 +291,8 @@ class SDOptimizer():
                 plt.savefig("vis/ConsentrationsOverTime.png")
             plt.show()
 
+        self.time_to_alarm = time_to_alarm
+
         return (X, Y, time_to_alarm)
 
     def example_time_to_alarm(self, x_bounds, y_bounds,
@@ -300,23 +321,23 @@ class SDOptimizer():
         return (x, y, z)
 
     def make_platypus_objective_function(
-            self, sources, type="basic", bad_sources=[]):
+            self, sources, func_type="basic", bad_sources=[]):
         """
         sources
 
         bad_sources : ArrayLike[Sources]
             These are the ones which we don't want to be near
         """
-        if type == "basic":
+        if func_type == "basic":
             raise NotImplementedError("I'm not sure I'll ever do this")
             # return self.make_platypus_objective_function_basic(sources)
-        elif type == "counting":
+        elif func_type == "counting":
             return self.make_platypus_objective_function_counting(sources)
-        elif type == "competing_function":
+        elif func_type == "competing_function":
             return self.make_platypus_objective_function_competing_function(
                 sources, bad_sources)
         else:
-            raise ValueError("The type : {} is not an option".format(type))
+            raise ValueError("The type : {} is not an option".format(func_type))
 
     def make_platypus_objective_function_competing_function(
             self, sources, bad_sources=[]):
@@ -635,7 +656,7 @@ class SDOptimizer():
         plt.show()
 
     def optimize(self, sources, num_sources, bounds=None,
-                 genetic=True, platypus=False, visualize=True,
+                 genetic=True, multiobjective=False, visualize=True,
                  verbose=False, is3d=False, multiobjective_type="counting",
                  intialization=None, **kwargs):
         """
@@ -649,7 +670,7 @@ class SDOptimizer():
             whether to use a genetic algorithm
         masked : Boolean
             Whether the input is masked TODO figure out what I meant
-        platypus : Boolean
+        multiobjective : Boolean
             Should really be called multiobjective. Runs multiobjective
         kwargs : This is some python dark magic stuff which effectively lets you get a dictionary of named arguments
         """
@@ -675,7 +696,7 @@ class SDOptimizer():
         else:
             total_ret_func = make_total_lookup_function(
                 sources)  # the function to be optimized
-        if platypus:
+        if multiobjective:
             if multiobjective_type == "counting":
                 problem = self.make_platypus_objective_function_counting(
                     sources)  # TODO remove this

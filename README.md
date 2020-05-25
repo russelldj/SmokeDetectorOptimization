@@ -1,13 +1,20 @@
 ## Overview
+Most of the results can be seen using jupyter notebooks which run in your browser.
 
-A good overview is provided in `StreamlinedExperiements.ipynb`. This is a jupyter notebook which you can run, but you can also view it in browser.
+An initial toy example that we used at the beginning is presented in `ToyExample.ipynb`.
+An example of actually optimizing based on the 2D plane but using a quadratic time to alarm function is shown in `QuadraticExample.ipynb`.
+The experiments with real data are shown in `Experiements.ipynb`.
+A more through analysis of the optimizer's performance is shown in ``
+
+3D data which can't be visualized well in a notebook is shown in `vis_3D.py`.
+
 All the algorithms are in `SDOptimizer.py`
 
 ## Setup
 When you clone do `git clone --recurse-submodules https://github.com/russelldj/SmokeDetectorOptimization.git` This will include the Platypus multiobjective optimizer library.
 The you will need to `cd Platypus` to enter the directory and execute `python setup.py develop` to make the library accessible.
 
-You will also need to install a variety of packages. Chief among them are `scipy`, `matplotlib`, `pandas`, and likely some others. They can be installed with the command `pip install <library>` or, if conda is installed `conda install <library>`.
+You will also need to install a variety of packages. Chief among them are `jupyter`, `scipy`, `matplotlib`, `pandas`, and likely some others. They can be installed with the command `pip install <library>` or, if conda is installed `conda install <library>`.
 `tqdm` is easiest to install using `pip install tqdm`
 
 ## Outputs
@@ -16,3 +23,4 @@ Most scripts which generate visualization will also write a camera-ready version
 ## TODO
 
 - create a requirements.txt file listing all of the required libraries
+- create a 3D visualization of the data
