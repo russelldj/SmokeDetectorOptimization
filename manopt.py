@@ -2,7 +2,7 @@ from SDOptimizer.functions import make_total_lookup_function
 
 import autograd.numpy as np
 
-from pymanopt.manifolds import Stiefel, Sphere
+from pymanopt.manifolds import Stiefel, Sphere, Product
 from pymanopt import Problem
 from pymanopt.solvers import SteepestDescent, NelderMead
 import pdb
@@ -19,7 +19,6 @@ from mpl_toolkits import mplot3d
 # do the lookup on the phi, rho grid and report that value
 
 # (1) Instantiate a manifold
-manifold = Sphere(3)
 
 def create_square(x_bounds, y_bounds, z_bounds, samples=50):
     """
@@ -106,7 +105,7 @@ def spherical_to_xyz(elev_az):
     return xyz.transpose()
 
 
-def make_cost_func(is_manifold=False):
+def make_cost_func(is_manifold=False, plot=True):
     """
     is_manifold : Boolean
         are we optimizing over xyz points constrained to lie on a sphere embedded in R3 or
@@ -127,8 +126,10 @@ def make_cost_func(is_manifold=False):
     elev = r_elev_ax[:,1]
     ax = r_elev_ax[:,2]
     cost_func_elev_az = make_total_lookup_function([(elev, ax, cost_per_point)]) # maps from a elev, ax to a cost
-    plt.scatter(elev, ax, c=cost_per_point)
-    plt.pause(1)
+    if plot:
+        plt.scatter(elev, ax, c=cost_per_point)
+        plt.pause(1)
+
     if not is_manifold:
         return cost_func_elev_az
 
@@ -143,17 +144,21 @@ def make_cost_func(is_manifold=False):
     return cost_fun_xyz
 
 
-cost_fun = make_cost_func()
 point = np.array([[1, 1, 1]])
 print(point.shape)
 r_elev_ax = xyz_to_spherical(point)
 elev_ax = r_elev_ax[0, 1:]
-print(cost_fun(np.array([0, 1])))
-print(cost_fun(np.array([np.pi / 2.0, np.pi / 4.0])))
-print(cost_fun(elev_ax))
 
 BOUNDS = [[-1, 1], [-1, 1], [-1, 1]]
 all_faces = create_cube(*BOUNDS)
+big_x = all_faces[:, 0] > 0.75
+cost = np.sum(all_faces, axis=1)
+cost[big_x] = -4
+fig = plt.figure()
+ax = plt.axes(projection='3d')
+ax.scatter(all_faces[:,0], all_faces[:,1], all_faces[:,2], c=cost)
+fig.show()
+plt.show()
 cost_per_point = np.sum(all_faces, axis=1)
 r_elev_ax = xyz_to_spherical(all_faces)
 new_xyz = spherical_to_xyz(r_elev_ax[:, 1:])
@@ -161,20 +166,28 @@ new_xyz = spherical_to_xyz(r_elev_ax[:, 1:])
 fig = plt.figure()
 ax = plt.axes(projection='3d')
 
-ax.scatter(new_xyz[:, 0], new_xyz[:, 1], new_xyz[:, 2], c=cost_per_point)
-fig.show()
-pdb.set_trace()
+
+def cost(x):
+    return np.sum(x[0]) - np.sum(x[1])
 
 
-# (2) Define the cost function (here using autograd.numpy)
-def cost(X): return np.sum(X)
-
-
+cost_fun = make_cost_func(is_manifold=True, plot=False)
+#print(cost_fun(np.array([0, 1])))
+#print(cost_fun(np.array([np.pi / 2.0, np.pi / 4.0])))
+#print(cost_fun(elev_ax))
+manifold = Product((Sphere(3), Sphere(3)))  # sphere in r3 x sphere in r3, a weird manifold in r6
+print(cost([1, 1, 1, 1, 1, 1]))
 problem = Problem(manifold=manifold, cost=cost)
 
 # (3) Instantiate a Pymanopt solver
 solver = NelderMead()
 
 # let Pymanopt do the rest
-Xopt = solver.solve(problem)
-print(Xopt)
+#x = solver.solve(problem)
+#print(cost(x))
+#print(x)
+#print([x, y, z])
+#ax.scatter(x, y, z, s=200, c='r')
+ax.scatter(new_xyz[:, 0], new_xyz[:, 1], new_xyz[:, 2], c=cost_per_point)
+fig.show()
+pdb.set_trace()

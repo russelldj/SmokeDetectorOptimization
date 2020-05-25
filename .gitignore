@@ -3,3 +3,4 @@
 vals.npy
 locs.npy
 __pycache__/
+*pyc
