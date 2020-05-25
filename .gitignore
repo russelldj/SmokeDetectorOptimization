@@ -2,3 +2,4 @@
 /vis/**
 vals.npy
 locs.npy
+__pycache__/
