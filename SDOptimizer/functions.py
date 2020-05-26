@@ -8,13 +8,13 @@ def make_location_objective(masked):
     an example function to evalute the quality of the locations
     """
     if masked:
-        def location_evaluation(xyons): # TODO make this cleaner
+        def location_evaluation(xyons):  # TODO make this cleaner
             good = []
             for i in range(0, len(xyons), 3):
                 x, y, on = xyons[i:i+3]
                 if on[0]:
-                    good.extend([x,y])
-            if len(good) == 0: # This means none were on
+                    good.extend([x, y])
+            if len(good) == 0:  # This means none were on
                 return 0
             else:
                 return np.linalg.norm(good)
@@ -22,6 +22,7 @@ def make_location_objective(masked):
         def location_evaluation(xys):
             return np.linalg.norm(xys)
     return location_evaluation
+
 
 def make_counting_objective():
     """
@@ -49,11 +50,12 @@ def make_lookup(X, Y, time_to_alarm):
     best = np.argmin(
         time_to_alarm)  # get the location of the shortest time to alarm
     XY = np.vstack((X, Y)).transpose()  # combine the x and y data points
-    #self.logger.info("The best time, determined by exaustive search, is {} and occurs at {}".format(
-        #time_to_alarm[best], XY[best, :]))
+    # self.logger.info("The best time, determined by exaustive search, is {} and occurs at {}".format(
+    # time_to_alarm[best], XY[best, :]))
     EPSILON = 0.00000001
+
     def ret_func(xy):  # this is what will be returned
-        if False:#TODO this should be True
+        if False:  # TODO this should be True
             closest_time = griddata(XY, time_to_alarm, xy)
             print(closest_time)
         else:
@@ -67,11 +69,12 @@ def make_lookup(X, Y, time_to_alarm):
         return closest_time
     return ret_func
 
+
 def make_total_lookup_function(
-    xytimes,
-    verbose=False,
-    type="worst_case",
-    masked=False):
+        xytimes,
+        verbose=False,
+        type="worst_case",
+        masked=False):
     """
     This function creates and returns the function which will be optimized
     -----inputs------
@@ -93,6 +96,7 @@ def make_total_lookup_function(
     for x, y, times in xytimes:
         # create all of the functions mapping from a location to a time
         funcs.append(make_lookup(x, y, times))
+
     def ret_func(xys):
         """
         xys : ArrayLike
@@ -107,13 +111,13 @@ def make_total_lookup_function(
             some_on = False
             for i in range(0, len(xys), 3):
                 x, y, on = xys[i:i+3]
-                if on[0]: # don't evaluate a detector which isn't on, on is really a list of length 1
+                if on[0]:  # don't evaluate a detector which isn't on, on is really a list of length 1
                     all_times.append([])
                     some_on = True
                     for func in funcs:
                         all_times[-1].append(func([x, y]))
             all_times = np.asarray(all_times)
-            if not some_on: # This means that no sources were turned on
+            if not some_on:  # This means that no sources were turned on
                 return BIG_NUMBER
         else:
             for i in range(0, len(xys), 2):
@@ -135,9 +139,10 @@ def make_total_lookup_function(
             sorted = np.sort(time_for_each_source)[1]
             ALPHA = 0.3
             ret_val = (sorted[0] + ALPHA * sorted[1]) / (1 + ALPHA)
-        elif type=="fastest":
-            #print(all_times)
-            ret_val = np.amin(all_times) # this just cares about the source-detector pair that alarms fastest
+        elif type == "fastest":
+            # print(all_times)
+            # this just cares about the source-detector pair that alarms fastest
+            ret_val = np.amin(all_times)
         else:
             raise ValueError("type is : {} which is not included".format(type))
         if verbose:
@@ -150,6 +155,16 @@ def make_total_lookup_function(
     return ret_func
 
 
+def convert_to_spherical_from_points(X, Y, Z):
+    # Make each of them lie on the range (-1, 1)
+    X = np.expand_dims(normalize(X, -1, 2), axis=1)
+    Y = np.expand_dims(normalize(Y, -1, 2), axis=1)
+    Z = np.expand_dims(normalize(Z, -1, 2), axis=1)
+    xyz = np.concatenate((X, Y, Z), axis=1)
+    elev_az = xyz_to_spherical(xyz)[:, 1:]
+    return elev_az[:, 0], elev_az[:, 1]
+
+
 def normalize(x, lower_bound=0, scale=1):
     if scale <= 0:
         raise ValueError("scale was less than or equal to 0")
@@ -159,3 +174,35 @@ def normalize(x, lower_bound=0, scale=1):
     x_prime = (x - minimum) / diff
     x_prime = x_prime * scale + lower_bound
     return x_prime
+
+
+def xyz_to_spherical(xyz):
+    """
+    xyz : np.array
+        this is (n, 3) with one row for each x, y, z
+    modified from
+    https://stackoverflow.com/questions/4116658/faster-numpy-cartesian-to-spherical-coordinate-conversion
+    """
+    r_elev_ax = np.zeros(xyz.shape)
+    xy = xyz[:, 0]**2 + xyz[:, 1]**2
+    r_elev_ax[:, 0] = np.sqrt(xy + xyz[:, 2]**2)
+    # for elevation angle defined from Z-axis down
+    r_elev_ax[:, 1] = np.arctan2(np.sqrt(xy), xyz[:, 2])
+    # ptsnew[:,1] = np.arctan2(xyz[:,2], np.sqrt(xy)) # for elevation angle defined from XY-plane up
+    r_elev_ax[:, 2] = np.arctan2(xyz[:, 1], xyz[:, 0])
+    return r_elev_ax
+
+
+def spherical_to_xyz(elev_az):
+    """
+    elev_az : np.array
+        This is a (n, 2) array where the columns represent the elevation and the azimuthal angles
+    """
+    # check that these aren't switched and migrate to all one convention
+    phi = elev_az[:, 0]
+    theta = elev_az[:, 1]
+    x = np.sin(phi) * np.cos(theta)
+    y = np.sin(phi) * np.sin(theta)
+    z = np.cos(phi)
+    xyz = np.vstack((x, y, z))
+    return xyz.transpose()

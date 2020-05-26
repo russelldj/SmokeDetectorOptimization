@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 from SDOptimizer.constants import DATA_FILE, PLOT_TITLES, ALARM_THRESHOLD, PAPER_READY, INFEASIBLE_MULTIPLE, NEVER_ALARMED_MULTIPLE
-from SDOptimizer.functions import make_location_objective, make_counting_objective, make_lookup, make_total_lookup_function
+from SDOptimizer.functions import make_location_objective, make_counting_objective, make_lookup, make_total_lookup_function, convert_to_spherical_from_points
 from SDOptimizer.visualization import show_optimization_statistics, show_optimization_runs
 from time import sleep
 # from tqdm.notebook import trange, tqdm  # For plotting progress
@@ -19,6 +19,7 @@ import matplotlib.animation as animation
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import
+from matplotlib import cm
 
 from importlib import reload
 import io
@@ -165,11 +166,20 @@ class SDOptimizer():
             if show:
                 plt.show()
 
-    def visualize_3D(self):
+    def visualize_3D(self, label="3D visualization of the time to alarm"):
         matplotlib.use('TkAgg')
         fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')
-        ax.scatter(self.X, self.Y, self.Z, c=self.time_to_alarm)
+        ax = fig.gca(projection='3d')
+        # TODO see if there is a workaround to get equal aspect
+        # ax.set_aspect('equal')
+        cb = ax.scatter(self.X, self.Y, self.Z,
+                        c=self.time_to_alarm, cmap=cm.inferno)
+        plt.colorbar(cb)
+        ax.set_xlabel('X Label')
+        ax.set_ylabel('Y Label')
+        ax.set_zlabel('Z Label')
+        print(label)
+        ax.set_label(label)
         plt.show()
 
     def get_time_to_alarm(
@@ -181,6 +191,7 @@ class SDOptimizer():
             infeasible_locations=None,
             alarm_threshold=ALARM_THRESHOLD,
             visualize=False,
+            phi_rho_projection=False,
             num_samples_visualized=10):
         """
         file_x, flip_y : Boolean
@@ -191,6 +202,8 @@ class SDOptimizer():
             What concentraion will trigger the detector
         visualize : Boolean
             Should it be shown
+        phi_rho_projection : Boolean
+            Should the data be projected into spherical coordinates
         num_samples_visualized : into
             the number of scattered points to visualize the concentration over time for
         """
@@ -221,7 +234,10 @@ class SDOptimizer():
                 # this represents a location which was never alarmed
                 time_to_alarm.append(num_timesteps * NEVER_ALARMED_MULTIPLE)
 
+        # Perform the augmentations
         time_to_alarm = np.array(time_to_alarm)
+        self.time_to_alarm = time_to_alarm
+
         if flip_x:
             X = max(self.X) - self.X + min(self.X)
         else:
@@ -234,6 +250,8 @@ class SDOptimizer():
 
         X += x_shift
         Y += y_shift
+
+        # Add the infesible region
         if infeasible_locations is not None:
             for infeasible in infeasible_locations:
                 x1, y1, x2, y2 = infeasible
@@ -242,6 +260,9 @@ class SDOptimizer():
                 which_infeasible = np.nonzero(infeasible_locations)
                 time_to_alarm[which_infeasible] = num_timesteps * \
                     INFEASIBLE_MULTIPLE
+
+        if phi_rho_projection:
+            X, Y = convert_to_spherical_from_points(X, Y, self.Z)
 
         if visualize:
             cb = self.pmesh_plot(
@@ -290,8 +311,6 @@ class SDOptimizer():
             if PAPER_READY:
                 plt.savefig("vis/ConsentrationsOverTime.png")
             plt.show()
-
-        self.time_to_alarm = time_to_alarm
 
         return (X, Y, time_to_alarm)
 
@@ -730,9 +749,14 @@ class SDOptimizer():
                             solution.objectives,
                             solution.variables))
 
-            plt.scatter([s.objectives[1] for s in algorithm.result],
+            x_values = [s.objectives[1] for s in algorithm.result]
+            plt.scatter(x_values,
                         [s.objectives[0] for s in algorithm.result])
             plt.xlabel(second_objective)
+            if second_objective == "competing_function":
+                # invert the axis
+                plt.set_xlim(max(x_values), min(x_values))
+
             plt.ylabel("The time to alarm")
             plt.title("Pareto optimality curve for the two functions")
             if PAPER_READY:

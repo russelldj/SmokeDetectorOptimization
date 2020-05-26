@@ -1,4 +1,4 @@
-from SDOptimizer.functions import make_total_lookup_function
+from SDOptimizer.functions import make_total_lookup_function, xyz_to_spherical, spherical_to_xyz
 
 import autograd.numpy as np
 
@@ -19,6 +19,7 @@ from mpl_toolkits import mplot3d
 # do the lookup on the phi, rho grid and report that value
 
 # (1) Instantiate a manifold
+
 
 def create_square(x_bounds, y_bounds, z_bounds, samples=50):
     """
@@ -47,13 +48,15 @@ def create_square(x_bounds, y_bounds, z_bounds, samples=50):
         ys = np.linspace(y_bounds[0], y_bounds[1], num=samples)
         xs, ys = np.meshgrid(xs, ys)
     else:
-        raise ValueError("The is something wrong with the bounds, two should be length 2 and one should be length 1")
+        raise ValueError(
+            "The is something wrong with the bounds, two should be length 2 and one should be length 1")
 
     xs = xs.flatten()
     ys = ys.flatten()
     zs = zs.flatten()
     all = np.vstack((xs, ys, zs))
     return all.transpose()
+
 
 def create_cube(x_bounds, y_bounds, z_bounds, samples=50):
     """
@@ -74,35 +77,13 @@ def create_cube(x_bounds, y_bounds, z_bounds, samples=50):
         [x_bounds, [y_high], z_bounds],
         [[x_low], y_bounds, z_bounds],
         [[x_high], y_bounds, z_bounds]
-        ]
+    ]
 
     for comb in COMBINATIONS:
         face = create_square(*comb)
         all_faces = np.vstack((all_faces, face))
 
     return all_faces
-
-def xyz_to_spherical(xyz):
-    """
-    modified from
-    https://stackoverflow.com/questions/4116658/faster-numpy-cartesian-to-spherical-coordinate-conversion
-    """
-    r_elev_ax = np.zeros(xyz.shape)
-    xy = xyz[:, 0]**2 + xyz[:, 1]**2
-    r_elev_ax[:, 0] = np.sqrt(xy + xyz[:, 2]**2)
-    r_elev_ax[:, 1] = np.arctan2(np.sqrt(xy), xyz[:, 2]) # for elevation angle defined from Z-axis down
-    #ptsnew[:,1] = np.arctan2(xyz[:,2], np.sqrt(xy)) # for elevation angle defined from XY-plane up
-    r_elev_ax[:, 2] = np.arctan2(xyz[:, 1], xyz[:, 0])
-    return r_elev_ax
-
-def spherical_to_xyz(elev_az):
-    phi = elev_az[:,0] # check that these aren't switched and migrate to all one convention
-    theta = elev_az[:,1]
-    x = np.sin(phi) * np.cos(theta)
-    y = np.sin(phi) * np.sin(theta)
-    z = np.cos(phi)
-    xyz = np.vstack((x, y, z))
-    return xyz.transpose()
 
 
 def make_cost_func(is_manifold=False, plot=True):
@@ -123,9 +104,10 @@ def make_cost_func(is_manifold=False, plot=True):
     print("mins : {}".format(np.min(r_elev_ax, axis=0)))
     print("maxes : {}".format(np.max(r_elev_ax, axis=0)))
     print(r_elev_ax.shape)
-    elev = r_elev_ax[:,1]
-    ax = r_elev_ax[:,2]
-    cost_func_elev_az = make_total_lookup_function([(elev, ax, cost_per_point)]) # maps from a elev, ax to a cost
+    elev = r_elev_ax[:, 1]
+    ax = r_elev_ax[:, 2]
+    cost_func_elev_az = make_total_lookup_function(
+        [(elev, ax, cost_per_point)])  # maps from a elev, ax to a cost
     if plot:
         plt.scatter(elev, ax, c=cost_per_point)
         plt.pause(1)
@@ -156,7 +138,7 @@ cost = np.sum(all_faces, axis=1)
 cost[big_x] = -4
 fig = plt.figure()
 ax = plt.axes(projection='3d')
-ax.scatter(all_faces[:,0], all_faces[:,1], all_faces[:,2], c=cost)
+ax.scatter(all_faces[:, 0], all_faces[:, 1], all_faces[:, 2], c=cost)
 fig.show()
 plt.show()
 cost_per_point = np.sum(all_faces, axis=1)
@@ -174,8 +156,9 @@ def cost(x):
 cost_fun = make_cost_func(is_manifold=True, plot=False)
 #print(cost_fun(np.array([0, 1])))
 #print(cost_fun(np.array([np.pi / 2.0, np.pi / 4.0])))
-#print(cost_fun(elev_ax))
-manifold = Product((Sphere(3), Sphere(3)))  # sphere in r3 x sphere in r3, a weird manifold in r6
+# print(cost_fun(elev_ax))
+# sphere in r3 x sphere in r3, a weird manifold in r6
+manifold = Product((Sphere(3), Sphere(3)))
 print(cost([1, 1, 1, 1, 1, 1]))
 problem = Problem(manifold=manifold, cost=cost)
 
@@ -184,8 +167,8 @@ solver = NelderMead()
 
 # let Pymanopt do the rest
 #x = solver.solve(problem)
-#print(cost(x))
-#print(x)
+# print(cost(x))
+# print(x)
 #print([x, y, z])
 #ax.scatter(x, y, z, s=200, c='r')
 ax.scatter(new_xyz[:, 0], new_xyz[:, 1], new_xyz[:, 2], c=cost_per_point)
