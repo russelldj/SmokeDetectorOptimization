@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
-from SDOptimizer.constants import DATA_FILE, PLOT_TITLES, ALARM_THRESHOLD, PAPER_READY, INFEASIBLE_MULTIPLE, NEVER_ALARMED_MULTIPLE
+from SDOptimizer.constants import DATA_FILE, PLOT_TITLES, ALARM_THRESHOLD, PAPER_READY, INFEASIBLE_MULTIPLE, NEVER_ALARMED_MULTIPLE, SMOOTH_PLOTS
 from SDOptimizer.functions import make_location_objective, make_counting_objective, make_lookup, make_total_lookup_function, convert_to_spherical_from_points
 from SDOptimizer.visualization import show_optimization_statistics, show_optimization_runs
 from time import sleep
@@ -166,14 +166,26 @@ class SDOptimizer():
             if show:
                 plt.show()
 
-    def visualize_3D(self, label="3D visualization of the time to alarm"):
+    def visualize_3D(self, XYZ_locs, smoke_source, final_locations, label="3D visualization of the time to alarm"):
+        """
+        XYZ_locs : (X, Y, Z)
+            The 3D locations of the points
+        smoke_source : (x, y, time_to_alarm)
+            The coresponding result from `get_time_to_alarm()``
+        final_locations : [(x, y), (x, y), ...]
+            The location(s) of the detector placements
+        """
+        pdb.set_trace()
         matplotlib.use('TkAgg')
         fig = plt.figure()
         ax = fig.gca(projection='3d')
         # TODO see if there is a workaround to get equal aspect
-        # ax.set_aspect('equal')
-        cb = ax.scatter(self.X, self.Y, self.Z,
-                        c=self.time_to_alarm, cmap=cm.inferno)
+        # Unpack
+        X, Y, Z = XYZ_locs
+        x, y, time_to_alarm = smoke_source
+
+        cb = ax.scatter(X, Y, Z,
+                        c=time_to_alarm, cmap=cm.inferno)
         plt.colorbar(cb)
         ax.set_xlabel('X Label')
         ax.set_ylabel('Y Label')
@@ -181,6 +193,9 @@ class SDOptimizer():
         print(label)
         ax.set_label(label)
         plt.show()
+
+    def get_3D_locs(self):
+        return (self.X, self.Y, self.Z)
 
     def get_time_to_alarm(
             self,
@@ -191,8 +206,9 @@ class SDOptimizer():
             infeasible_locations=None,
             alarm_threshold=ALARM_THRESHOLD,
             visualize=False,
-            phi_rho_projection=False,
-            num_samples_visualized=10):
+            spherical_projection=False,
+            num_samples_visualized=10,
+            write_figs=PAPER_READY):
         """
         file_x, flip_y : Boolean
             Should the data be flipped about the corresponding axis for augmentation
@@ -202,10 +218,12 @@ class SDOptimizer():
             What concentraion will trigger the detector
         visualize : Boolean
             Should it be shown
-        phi_rho_projection : Boolean
+        spherical_projection : Boolean
             Should the data be projected into spherical coordinates
-        num_samples_visualized : into
+        num_samples_visualized : int
             the number of scattered points to visualize the concentration over time for
+        write_figs : Boolean
+            Should you write out figures to ./vis/
         """
         time_to_alarm, concentrations = self.compute_time_to_alarm(
             alarm_threshold)
@@ -235,19 +253,21 @@ class SDOptimizer():
                 time_to_alarm[which_infeasible] = num_timesteps * \
                     INFEASIBLE_MULTIPLE
 
-        if phi_rho_projection:
+        if spherical_projection:
             X, Y = convert_to_spherical_from_points(X, Y, self.Z)
 
         if visualize:
             self.visualize_time_to_alarm(
                 X, Y, time_to_alarm, num_samples=num_samples,
-                concentrations=concentrations, spherical=phi_rho_projection)
+                concentrations=concentrations, spherical=spherical_projection,
+                write_figs=write_figs)
 
         return (X, Y, time_to_alarm)
 
     def visualize_time_to_alarm(self, X, Y, time_to_alarm, num_samples,
                                 concentrations, num_samples_visualized=10,
-                                smoothed=False, spherical=True):
+                                smoothed=False, spherical=True,
+                                write_figs=PAPER_READY):
         cb = self.pmesh_plot(
             X,
             Y,
@@ -258,12 +278,12 @@ class SDOptimizer():
 
         plt.colorbar(cb)  # Add a colorbar to a plot
         if spherical:
-            plt.xlabel("phi location")
-            plt.ylabel("rho location")
+            plt.xlabel(r'$\theta$')
+            plt.ylabel(r'$\phi$')
         else:
             plt.xlabel("x location")
             plt.ylabel("y location")
-        if PAPER_READY:
+        if write_figs:
             if smoothed:
                 plt.savefig("vis/TimeToAlarmSmoothed.png")
             else:
@@ -289,7 +309,7 @@ class SDOptimizer():
         ys = Y[samples]
         for x_, y_ in zip(xs, ys):  # dashed to avoid confusion
             plt.scatter(x_, y_)
-        if PAPER_READY:
+        if write_figs:
             plt.savefig("vis/SingleTimestepConcentration.png")
         plt.show()
         rows = concentrations[:, samples].transpose()
@@ -299,9 +319,42 @@ class SDOptimizer():
             plt.title("random samples of concentration over time")
         plt.xlabel("timesteps")
         plt.ylabel("concentration")
-        if PAPER_READY:
+        if write_figs:
             plt.savefig("vis/ConsentrationsOverTime.png")
         plt.show()
+
+        # This is now the first concentrations
+        last_concentrations = concentrations[0, :]
+        nonzero_concentrations = last_concentrations[np.nonzero(
+            last_concentrations)]
+        log_nonzero_concentrations = np.log10(nonzero_concentrations)
+
+        plt.hist(log_nonzero_concentrations)
+        plt.xlabel("Final concentration (log)")
+        plt.ylabel("Frequency of occurance")
+        if write_figs:
+            plt.savefig("vis/FinalStepConcentrationHist.png")
+        plt.title(
+            "The histogram of the final nonzero log_{10} smoke concentrations")
+        plt.show()
+
+        plt.hist(time_to_alarm)
+        plt.xlabel("Time to alarm (timesteps)")
+        plt.ylabel("Frequency of occurance")
+        if write_figs:
+            plt.savefig("vis/TimeToAlarmHistogram.png")
+        plt.title(
+            "The histogram of the time to alarm")
+        plt.show()
+
+        # show all the max_concentrations
+        # This takes an extrodinarily long time
+        # xs, ys = np.meshgrid(
+        #    range(concentrations.shape[1]), range(concentrations.shape[0]))
+        # pdb.set_trace()
+        #cb = plt.scatter(xs.flatten(), ys.flatten(), c=concentrations.flatten())
+        # plt.colorbar(cb)  # Add a colorbar to a plot
+        # plt.show()
 
     def compute_time_to_alarm(self, alarm_threshold):
         # Get all of the concentrations
@@ -545,7 +598,7 @@ class SDOptimizer():
             num_samples=50,
             is_3d=False,
             log=False,  # log scale for plotting
-            smooth=True,
+            smooth=SMOOTH_PLOTS,
             cmap=plt.cm.inferno):
         """
         conveneince function to easily plot the sort of data we have
