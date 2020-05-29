@@ -241,13 +241,13 @@ class SDOptimizer():
         if visualize:
             self.visualize_time_to_alarm(
                 X, Y, time_to_alarm, num_samples=num_samples,
-                concentrations=concentrations)
+                concentrations=concentrations, spherical=phi_rho_projection)
 
         return (X, Y, time_to_alarm)
 
     def visualize_time_to_alarm(self, X, Y, time_to_alarm, num_samples,
                                 concentrations, num_samples_visualized=10,
-                                smoothed=False):
+                                smoothed=False, spherical=True):
         cb = self.pmesh_plot(
             X,
             Y,
@@ -257,8 +257,12 @@ class SDOptimizer():
             cmap=mpl.cm.inferno)  # choose grey to plot color over
 
         plt.colorbar(cb)  # Add a colorbar to a plot
-        plt.xlabel("x location")
-        plt.ylabel("y location")
+        if spherical:
+            plt.xlabel("phi location")
+            plt.ylabel("rho location")
+        else:
+            plt.xlabel("x location")
+            plt.ylabel("y location")
         if PAPER_READY:
             if smoothed:
                 plt.savefig("vis/TimeToAlarmSmoothed.png")

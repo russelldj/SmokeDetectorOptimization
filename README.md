@@ -26,4 +26,4 @@ Most scripts which generate visualization will also write a camera-ready version
 - create a 3D visualization of the data
 - Figure out exactly what the Pareto optimal set is
 - Think about if there's a good way to represent this as a graph
-- Show the points rather than the smoothed version
+- Visualize the selected location in 3D
