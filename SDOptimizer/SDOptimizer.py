@@ -57,7 +57,7 @@ class SDOptimizer():
         self.logger.info(
             "The number of timesteps is {}".format(len(all_points)))
 
-        self.all_times = []
+        self.concentrations = []
         self.max_concentrations = []
 
         for time in all_points[1:-1]:
@@ -71,9 +71,9 @@ class SDOptimizer():
                     ' Particle Mass Concentration [ kg m^-3 ]': 'C'})
             # drop the last row which is always none
             df.drop(df.tail(1).index, inplace=True)
-            self.all_times.append(df)
             # get all of the concentrations but the null last one
             concentration = df['C'].values
+            self.concentrations.append(concentration)
             self.max_concentrations.append(np.max(concentration))
 
         # The x and y values are the same for all timesteps
@@ -95,7 +95,7 @@ class SDOptimizer():
         if len(filenames) == 0:
             raise ValueError(
                 "There were no files in the specified directory : {}".format(directory))
-        self.all_times = []
+        self.concentrations = []
         self.max_concentrations = []
         for filename in filenames:
             df = pd.read_csv(filename, sep=' ', skipinitialspace=True)
@@ -108,11 +108,11 @@ class SDOptimizer():
                     'z-coordinate': 'Z',
                     'dpm-concentration': 'C'})
             concentration = df['C'].values
+            self.concentrations.append(concentration)
             self.max_concentrations.append(np.max(concentration))
-            self.all_times.append(df)
         self.X = df['X'].values
         # yes, this is Z. Must be a different reference frame
-        #self.Y = df['Z'].values
+        # self.Y = df['Z'].values
         self.Y = df['Y'].values
         self.Z = df['Z'].values
 
@@ -143,10 +143,10 @@ class SDOptimizer():
         max_concentration = max(self.max_concentrations)
 
         print("Writing output files to ./vis")
-        for i, df in tqdm(
+        for i, concentration in tqdm(
             enumerate(
-                self.all_times), total=len(
-                self.all_times)):  # this is just wrapping it in a progress bar
+                self.concentrations), total=len(
+                self.concentrations)):  # this is just wrapping it in a progress bar
             plt.cla()
             plt.clf()
             plt.xlabel("X position")
@@ -157,7 +157,7 @@ class SDOptimizer():
             cb = self.pmesh_plot(
                 self.X,
                 self.Y,
-                df['C'],
+                concentration,
                 plt,
                 log=log,
                 max_val=max_concentration)
@@ -207,37 +207,11 @@ class SDOptimizer():
         num_samples_visualized : into
             the number of scattered points to visualize the concentration over time for
         """
-        concentrations = np.asarray(
-            [x['C'].values for x in self.all_times])  # Get all of the concentrations
-        self.logger.info(
-            "There are {} timesteps and {} flattened locations".format(
-                concentrations.shape[0],
-                concentrations.shape[1]))
+        time_to_alarm, concentrations = self.compute_time_to_alarm(
+            alarm_threshold)
+        num_timesteps, num_samples = concentrations.shape
 
-        # Determine which entries have higher concentrations
-        num_timesteps = concentrations.shape[0]
-        alarmed = concentrations > alarm_threshold
-        nonzero = np.nonzero(alarmed)  # determine where the non zero entries
-        # this is pairs indicating that it alarmed at that time and location
-        nonzero_times, nonzero_locations = nonzero
-
-        time_to_alarm = []
-        for loc in range(alarmed.shape[1]):  # All of the possible locations
-            # the indices for times which have alarmed at that location
-            same = (loc == nonzero_locations)
-            if(np.any(same)):  # check if this alarmed at any point
-                # These are all of the times which alarmed
-                alarmed_times = nonzero_times[same]
-                # Determine the first alarming time
-                time_to_alarm.append(min(alarmed_times))
-            else:
-                # this represents a location which was never alarmed
-                time_to_alarm.append(num_timesteps * NEVER_ALARMED_MULTIPLE)
-
-        # Perform the augmentations
-        time_to_alarm = np.array(time_to_alarm)
-        self.time_to_alarm = time_to_alarm
-
+        # all the rest is just augmentation
         if flip_x:
             X = max(self.X) - self.X + min(self.X)
         else:
@@ -265,54 +239,98 @@ class SDOptimizer():
             X, Y = convert_to_spherical_from_points(X, Y, self.Z)
 
         if visualize:
-            cb = self.pmesh_plot(
-                X,
-                Y,
-                time_to_alarm,
-                plt,
-                num_samples=70,
-                cmap=mpl.cm.inferno)  # choose grey to plot color over
-            plt.colorbar(cb)  # Add a colorbar to a plot
-            plt.xlabel("x location")
-            plt.ylabel("y location")
-            if PAPER_READY:
-                plt.savefig("vis/TimeToAlarm.png")
-            plt.show()
-            cb = self.pmesh_plot(
-                X,
-                Y,
-                time_to_alarm,
-                plt,
-                num_samples=70,
-                cmap=mpl.cm.Greys)  # choose grey to plot color over
-            plt.colorbar(cb)  # Add a colorbar to a plot
-            if PLOT_TITLES:
-                plt.title("Time to alarm versus location on the wall")
-            plt.xlabel("X location")
-            plt.ylabel("Y location")
-            samples = np.random.choice(
-                concentrations.shape[1],
-                num_samples_visualized)
-            # plot the sampled locations
-            xs = X[samples]
-            ys = Y[samples]
-            for x_, y_ in zip(xs, ys):  # dashed to avoid confusion
-                plt.scatter(x_, y_)
-            if PAPER_READY:
-                plt.savefig("vis/SingleTimestepConcentration.png")
-            plt.show()
-            rows = concentrations[:, samples].transpose()
-            for row in rows:
-                plt.plot(row)
-            if PLOT_TITLES:
-                plt.title("random samples of concentration over time")
-            plt.xlabel("timesteps")
-            plt.ylabel("concentration")
-            if PAPER_READY:
-                plt.savefig("vis/ConsentrationsOverTime.png")
-            plt.show()
+            self.visualize_time_to_alarm(
+                X, Y, time_to_alarm, num_samples=num_samples,
+                concentrations=concentrations)
 
         return (X, Y, time_to_alarm)
+
+    def visualize_time_to_alarm(self, X, Y, time_to_alarm, num_samples,
+                                concentrations, num_samples_visualized=10,
+                                smoothed=False):
+        cb = self.pmesh_plot(
+            X,
+            Y,
+            time_to_alarm,
+            plt,
+            num_samples=70, smooth=smoothed,
+            cmap=mpl.cm.inferno)  # choose grey to plot color over
+
+        plt.colorbar(cb)  # Add a colorbar to a plot
+        plt.xlabel("x location")
+        plt.ylabel("y location")
+        if PAPER_READY:
+            if smoothed:
+                plt.savefig("vis/TimeToAlarmSmoothed.png")
+            else:
+                plt.savefig("vis/TimeToAlarmDots.png")
+        plt.show()
+        cb = self.pmesh_plot(
+            X,
+            Y,
+            time_to_alarm,
+            plt,
+            num_samples=70,
+            cmap=mpl.cm.Greys)  # choose grey to plot color over
+        plt.colorbar(cb)  # Add a colorbar to a plot
+        if PLOT_TITLES:
+            plt.title("Time to alarm versus location on the wall")
+        plt.xlabel("X location")
+        plt.ylabel("Y location")
+        samples = np.random.choice(
+            num_samples,
+            num_samples_visualized)
+        # plot the sampled locations
+        xs = X[samples]
+        ys = Y[samples]
+        for x_, y_ in zip(xs, ys):  # dashed to avoid confusion
+            plt.scatter(x_, y_)
+        if PAPER_READY:
+            plt.savefig("vis/SingleTimestepConcentration.png")
+        plt.show()
+        rows = concentrations[:, samples].transpose()
+        for row in rows:
+            plt.plot(row)
+        if PLOT_TITLES:
+            plt.title("random samples of concentration over time")
+        plt.xlabel("timesteps")
+        plt.ylabel("concentration")
+        if PAPER_READY:
+            plt.savefig("vis/ConsentrationsOverTime.png")
+        plt.show()
+
+    def compute_time_to_alarm(self, alarm_threshold):
+        # Get all of the concentrations
+        concentrations = np.asarray(self.concentrations)
+
+        num_timesteps = concentrations.shape[0]
+        self.logger.info(
+            'There are %s timesteps and %s flattened locations', concentrations.shape[0], concentrations.shape[1])
+
+        # Determine which entries have higher concentrations
+        num_timesteps = concentrations.shape[0]
+        alarmed = concentrations > alarm_threshold
+        nonzero = np.nonzero(alarmed)  # determine where the non zero entries
+        # this is pairs indicating that it alarmed at that time and location
+        nonzero_times, nonzero_locations = nonzero
+
+        time_to_alarm = []
+        for loc in range(alarmed.shape[1]):  # All of the possible locations
+            # the indices for times which have alarmed at that location
+            same = (loc == nonzero_locations)
+            if(np.any(same)):  # check if this alarmed at any point
+                # These are all of the times which alarmed
+                alarmed_times = nonzero_times[same]
+                # Determine the first alarming time
+                time_to_alarm.append(min(alarmed_times))
+            else:
+                # this represents a location which was never alarmed
+                time_to_alarm.append(num_timesteps * NEVER_ALARMED_MULTIPLE)
+
+        # Perform the augmentations
+        time_to_alarm = np.array(time_to_alarm)
+        self.time_to_alarm = time_to_alarm
+        return time_to_alarm, concentrations
 
     def example_time_to_alarm(self, x_bounds, y_bounds,
                               center, show=False, scale=1, offset=0):
@@ -523,47 +541,56 @@ class SDOptimizer():
             num_samples=50,
             is_3d=False,
             log=False,  # log scale for plotting
+            smooth=True,
             cmap=plt.cm.inferno):
         """
         conveneince function to easily plot the sort of data we have
+        smooth : Boolean
+            Plot the interpolated values rather than the actual points
 
         """
-        points = np.stack((xs, ys), axis=1)
-        sample_points = (np.linspace(min(xs), max(xs), num_samples),
-                         np.linspace(min(ys), max(ys), num_samples))
-        xis, yis = np.meshgrid(*sample_points)
-        flattened_xis = xis.flatten()
-        flattened_yis = yis.flatten()
-        interpolated = griddata(points, values, (flattened_xis, flattened_yis))
-        reshaped_interpolated = np.reshape(interpolated, xis.shape)
-        if max_val is not None:
-            if log:
-                EPSILON = 0.0000000001
-                norm = mpl.colors.LogNorm(
-                    EPSILON, max_val + EPSILON)  # avoid zero values
-                reshaped_interpolated += EPSILON
+        if smooth:
+            points = np.stack((xs, ys), axis=1)
+            sample_points = (np.linspace(min(xs), max(xs), num_samples),
+                             np.linspace(min(ys), max(ys), num_samples))
+            xis, yis = np.meshgrid(*sample_points)
+            flattened_xis = xis.flatten()
+            flattened_yis = yis.flatten()
+            interpolated = griddata(
+                points, values, (flattened_xis, flattened_yis))
+            reshaped_interpolated = np.reshape(interpolated, xis.shape)
+            if max_val is not None:
+                if log:
+                    EPSILON = 0.0000000001
+                    norm = mpl.colors.LogNorm(
+                        EPSILON, max_val + EPSILON)  # avoid zero values
+                    reshaped_interpolated += EPSILON
+                else:
+                    norm = mpl.colors.Normalize(0, max_val)
             else:
-                norm = mpl.colors.Normalize(0, max_val)
-        else:
-            if log:
-                norm = mpl.colors.LogNorm()
-                EPSILON = 0.0000000001
-                reshaped_interpolated += EPSILON
-            else:
-                norm = mpl.colors.Normalize()  # default
+                if log:
+                    norm = mpl.colors.LogNorm()
+                    EPSILON = 0.0000000001
+                    reshaped_interpolated += EPSILON
+                else:
+                    norm = mpl.colors.Normalize()  # default
 
-        if self.is3d:
-            plt.cla()
-            plt.clf()
-            plt.close()
-            fig = plt.figure()
-            ax = plt.axes(projection='3d')
-            #cb = ax.plot_surface(xis, yis, reshaped_interpolated,cmap=cmap, norm=norm, edgecolor='none')
-            cb = ax.contour3D(xis, yis, reshaped_interpolated, 60, cmap=cmap)
-            plt.show()
-        else:
-            cb = plotter.pcolormesh(
-                xis, yis, reshaped_interpolated, cmap=cmap, norm=norm)
+            # TODO see if this can be added for the non-smooth case
+            if self.is3d:
+                plt.cla()
+                plt.clf()
+                plt.close()
+                ax = plt.axes(projection='3d')
+                # cb = ax.plot_surface(xis, yis, reshaped_interpolated,cmap=cmap, norm=norm, edgecolor='none')
+                cb = ax.contour3D(
+                    xis, yis, reshaped_interpolated, 60, cmap=cmap)
+                plt.show()
+            else:
+                cb = plotter.pcolormesh(
+                    xis, yis, reshaped_interpolated, cmap=cmap, norm=norm)
+        else:  # Not smooth
+            # Just do a normal scatter plot
+            cb = plotter.scatter(xs, ys, c=values, cmap=cmap)
         return cb  # return the colorbar
 
     def plot_3d(
@@ -631,7 +658,7 @@ class SDOptimizer():
         # create the subplots
         plt.cla()
         plt.clf()
-        #f, ax = plt.subplots(int(len(optimized_detectors)/2), 1)
+        # f, ax = plt.subplots(int(len(optimized_detectors)/2), 1)
         f, ax = self.get_square_axis(len(optimized_detectors) / 2)
 
         num_samples = grid.shape[0]
@@ -674,13 +701,15 @@ class SDOptimizer():
 
         plt.show()
 
-    def optimize(self, sources, num_sources, bounds=None,
+    def optimize(self, sources, num_detectors, bounds=None,
                  genetic=True, multiobjective=False, visualize=True,
                  verbose=False, is3d=False, multiobjective_type="counting",
                  intialization=None, **kwargs):
         """
         sources : ArrayLike
             list of (x, y, time) tuples
+        num_detectors : int
+            The number of detectors to place
         bounds : ArrayLike
             [x_low, x_high, y_low, y_high], will be computed from self.X, self.Y if None
         initialization : ArrayLike
@@ -705,7 +734,7 @@ class SDOptimizer():
             bounds = [min_x, max_x, min_y, max_y]
 
         expanded_bounds = []
-        for i in range(0, num_sources * 2, 2):
+        for i in range(0, num_detectors * 2, 2):
             # set up the appropriate number of bounds
             expanded_bounds.extend(
                 [(bounds[0], bounds[1]), (bounds[2], bounds[3])])
@@ -741,6 +770,7 @@ class SDOptimizer():
                 raise ValueError(
                     "The type : {} was not valid".format(multiobjective_type))
             # optimize the problem using 1,000 function evaluations
+            # TODO should this be improved?
             algorithm.run(1000)
             if verbose:
                 for solution in algorithm.result:
@@ -803,8 +833,22 @@ class SDOptimizer():
                 print(output)
         return res
 
-    def evaluate_optimization(self, sources, num_sources, bounds=None,
+    def evaluate_optimization(self, sources, num_detectors, bounds=None,
                               genetic=True, visualize=True, num_iterations=10):
+        """
+        sources : ArrayLike
+            list of (x, y, time) tuples
+        num_detectors : int
+            The number of detectors to place
+        bounds : ArrayLike
+            [x_low, x_high, y_low, y_high], will be computed from self.X, self.Y if None
+        genetic : Boolean
+            whether to use a genetic algorithm
+        visualize : Boolean
+            Whether to visualize the results
+        num_iterations : int
+            How many times to run the optimizer
+        """
         vals = []
         locs = []
         iterations = []
@@ -812,7 +856,7 @@ class SDOptimizer():
         for i in trange(num_iterations):
             res = self.optimize(
                 sources,
-                num_sources,
+                num_detectors,
                 bounds=bounds,
                 genetic=genetic,
                 visualize=False)
