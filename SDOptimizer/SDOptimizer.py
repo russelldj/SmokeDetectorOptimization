@@ -166,7 +166,10 @@ class SDOptimizer():
             if show:
                 plt.show()
 
-    def visualize_3D(self, XYZ_locs, smoke_source, final_locations, label="3D visualization of the time to alarm"):
+    def visualize_3D(self, XYZ_locs, smoke_source, final_locations,
+                     label="3D visualization of the time to alarm",
+                     fraction=0.05):
+
         """
         XYZ_locs : (X, Y, Z)
             The 3D locations of the points
@@ -174,8 +177,9 @@ class SDOptimizer():
             The coresponding result from `get_time_to_alarm()``
         final_locations : [(x, y), (x, y), ...]
             The location(s) of the detector placements
+        fraction : float
+            how much of the points to visualize
         """
-        pdb.set_trace()
         matplotlib.use('TkAgg')
         fig = plt.figure()
         ax = fig.gca(projection='3d')
@@ -184,14 +188,32 @@ class SDOptimizer():
         X, Y, Z = XYZ_locs
         x, y, time_to_alarm = smoke_source
 
-        cb = ax.scatter(X, Y, Z,
-                        c=time_to_alarm, cmap=cm.inferno)
+        xy = np.hstack((np.expand_dims(x, axis=1), np.expand_dims(y, axis=1)))
+        for i in range(0, len(final_locations), 2):
+            final_location = final_locations[i:i+2]
+            # Find the index of the nearest point
+            diffs = xy - final_location
+            dists = np.linalg.norm(diffs, axis=1)
+            min_loc = np.argmin(dists)
+            closest_X = X[min_loc]
+            closest_Y = Y[min_loc]
+            closest_Z = Z[min_loc]
+            ax.scatter(closest_X, closest_Y, closest_Z, s=200, c='chartreuse', linewidths=0)
+
+
+        num_points = len(X) # could be len(Y) or len(Z)
+        sample_points = np.random.choice(num_points,
+                                         size=(int(num_points * fraction),))
+
+        cb = ax.scatter(X[sample_points], Y[sample_points], Z[sample_points],
+                        c=time_to_alarm[sample_points], cmap=cm.inferno, linewidths=1)
         plt.colorbar(cb)
         ax.set_xlabel('X Label')
         ax.set_ylabel('Y Label')
         ax.set_zlabel('Z Label')
         print(label)
         ax.set_label(label)
+
         plt.show()
 
     def get_3D_locs(self):

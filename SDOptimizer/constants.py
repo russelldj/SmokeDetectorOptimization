@@ -1,4 +1,13 @@
+import os
 DATA_FILE = "exportUSLab.csv"  # Points to the data Katie gave us
+
+# Make this cross platform by using the right seperating character for the
+# current operating system
+SMOKE_FOLDERS = [os.path.join("data", "first_computer_full3D"),
+                os.path.join("data", "second_computer_full3D")]
+
+FALSE_ALARM_FOLDERS = [os.path.join("data", "bike_full3D")]
+
 VISUALIZE = False
 #ALARM_THRESHOLD = 4e-20
 # This is the NASA-stated
