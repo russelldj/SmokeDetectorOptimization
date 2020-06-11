@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.interpolate import griddata
 import pdb
 from SDOptimizer.constants import *
 
@@ -38,35 +39,41 @@ def make_counting_objective():
     return counting_func
 
 
-def make_lookup(X, Y, time_to_alarm):
+def make_lookup(X, Y, time_to_alarm, Z=None, interpolation_method="nearest"):
     """
     X, Y : ArrayLike[Float]
         The x, y locations of the data points from the simulation
     time_to_alarm : ArrayLike[Float]
         The time to alarm corresponding to each of the locations
+    Z : ArrayLike[Float]
+        This is optional but will be used if not None
+    interpolation_method : str
+        The method for interpolating the data
     -----returns-----
-    the data at the sample nearest a given point
+    The sampled value, either using the nearest point or interpolation
     """
-    best = np.argmin(
-        time_to_alarm)  # get the location of the shortest time to alarm
-    XY = np.vstack((X, Y)).transpose()  # combine the x and y data points
-    # self.logger.info("The best time, determined by exaustive search, is {} and occurs at {}".format(
-    # time_to_alarm[best], XY[best, :]))
-    EPSILON = 0.00000001
+    if Z is None:
+        # combine the x and y data points
+        simulated_points = np.vstack((X, Y)).transpose()
+        num_dimensions = 2  # The number of dimensions we are optimizing over
+    else:
+        # combine the x and y data points
+        simulated_points = np.vstack((X, Y, Z)).transpose()
+        num_dimensions = 3  # The number of dimensions we are optimizing over
 
-    def ret_func(xy):  # this is what will be returned
-        if False:  # TODO this should be True
-            closest_time = griddata(XY, time_to_alarm, xy)
-            print(closest_time)
-        else:
-            diff = xy - XY  # get the x and y distances from the query point for each marked point
-            dist = np.linalg.norm(diff, axis=1)
-            locs = np.argsort(dist)[:1]
-            # weight by one over the distance to the sample point
-            weights = 1.0 / (dist[locs] + EPSILON)
-            reweighted = weights * time_to_alarm[locs]
-            closest_time = sum(reweighted) / sum(weights)
-        return closest_time
+    def ret_func(query_point):  # this is what will be returned
+        """
+        query_point : ArrayLike[float]
+            The point to get the value for
+        """
+        if len(query_point) != num_dimensions:
+            raise ValueError("The number of dimensions of the query point was {} when it should have been {}".format(
+                len(query_point), num_dimensions))
+
+        interpolated_time = griddata(
+            simulated_points, time_to_alarm, query_point,
+            method=interpolation_method)
+        return interpolated_time
     return ret_func
 
 
@@ -74,7 +81,9 @@ def make_total_lookup_function(
         xytimes,
         verbose=False,
         type="worst_case",
-        masked=False):
+        masked=False,
+        interpolation_method="nearest"
+):
     """
     This function creates and returns the function which will be optimized
     -----inputs------
@@ -86,6 +95,9 @@ def make_total_lookup_function(
         What function to use, "worst_cast", "softened", "second"
     masked : bool
         Is the input going to be [x, y, on, x, y, on, ...] representing active detectors
+    interpolation_method : str
+        Can be either nearest or linear, cubic is acceptable but idk why you'd do that
+        How to interpolate the sampled points
     -----returns-----
     ret_func : Function[ArrayLike[Float] -> Float]
         This is the function which will eventually be optimized and it maps from the smoke detector locations to the time to alarm
@@ -93,9 +105,21 @@ def make_total_lookup_function(
     """
     # Create data which will be used inside of the function to be returned
     funcs = []
-    for x, y, times in xytimes:
+    for xytime in xytimes:
         # create all of the functions mapping from a location to a time
-        funcs.append(make_lookup(x, y, times))
+        # This is notationionally dense but I think it is worthwhile
+        # We are creating a list of functions for each of the smoke sources
+        # The make_lookup function does that
+        if len(xytime) == 3:
+            # This is if we're only optimizing over two location variables per detector
+            X, Y, time = xytime
+            funcs.append(make_lookup(X, Y, time,
+                                     interpolation_method=interpolation_method))
+        elif len(xytime) == 4:
+            # Three location variables per detector
+            X, Y, Z, time = xytime
+            funcs.append(make_lookup(X, Y, time, Z=Z,
+                                     interpolation_method=interpolation_method))
 
     def ret_func(xys):
         """

@@ -169,7 +169,6 @@ class SDOptimizer():
     def visualize_3D(self, XYZ_locs, smoke_source, final_locations,
                      label="3D visualization of the time to alarm",
                      fraction=0.05):
-
         """
         XYZ_locs : (X, Y, Z)
             The 3D locations of the points
@@ -198,10 +197,10 @@ class SDOptimizer():
             closest_X = X[min_loc]
             closest_Y = Y[min_loc]
             closest_Z = Z[min_loc]
-            ax.scatter(closest_X, closest_Y, closest_Z, s=200, c='chartreuse', linewidths=0)
+            ax.scatter(closest_X, closest_Y, closest_Z,
+                       s=200, c='chartreuse', linewidths=0)
 
-
-        num_points = len(X) # could be len(Y) or len(Z)
+        num_points = len(X)  # could be len(Y) or len(Z)
         sample_points = np.random.choice(num_points,
                                          size=(int(num_points * fraction),))
 
@@ -284,6 +283,7 @@ class SDOptimizer():
                 concentrations=concentrations, spherical=spherical_projection,
                 write_figs=write_figs)
 
+        # TODO determine a way to cleanly return all three dimensions
         return (X, Y, time_to_alarm)
 
     def visualize_time_to_alarm(self, X, Y, time_to_alarm, num_samples,
@@ -876,7 +876,7 @@ class SDOptimizer():
                 warnings.warn(
                     "Can't visualize the objective values for a multiobjective run",
                     UserWarning)
-        else:
+        else:  # Single objective
             values = []
             # TODO see if there's a more efficient way to do this
 
