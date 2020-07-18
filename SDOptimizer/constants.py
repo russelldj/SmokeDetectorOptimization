@@ -23,4 +23,7 @@ PLOT_TITLES = False
 EPSILON = 0.000000001
 
 # Should plots by default be interpolated?
-SMOOTH_PLOTS = False
+SMOOTH_PLOTS = True
+
+# Change how sample points are interpolated
+INTERPOLATION_METHOD = "nearest"  # "linear" "cubic"

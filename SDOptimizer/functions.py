@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.interpolate import griddata
 import pdb
+from SDOptimizer.constants import INTERPOLATION_METHOD
 from SDOptimizer.constants import *
 
 
@@ -39,7 +40,7 @@ def make_counting_objective():
     return counting_func
 
 
-def make_lookup(X, Y, time_to_alarm, Z=None, interpolation_method="nearest"):
+def make_lookup(X, Y, time_to_alarm, Z=None, interpolation_method=INTERPOLATION_METHOD):
     """
     X, Y : ArrayLike[Float]
         The x, y locations of the data points from the simulation
@@ -82,8 +83,7 @@ def make_total_lookup_function(
         verbose=False,
         type="worst_case",
         masked=False,
-        interpolation_method="nearest"
-):
+        interpolation_method="nearest"):
     """
     This function creates and returns the function which will be optimized
     -----inputs------

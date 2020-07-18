@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
-from SDOptimizer.constants import DATA_FILE, PLOT_TITLES, ALARM_THRESHOLD, PAPER_READY, INFEASIBLE_MULTIPLE, NEVER_ALARMED_MULTIPLE, SMOOTH_PLOTS
+from SDOptimizer.constants import DATA_FILE, PLOT_TITLES, ALARM_THRESHOLD, PAPER_READY, INFEASIBLE_MULTIPLE, NEVER_ALARMED_MULTIPLE, SMOOTH_PLOTS, INTERPOLATION_METHOD
 from SDOptimizer.functions import make_location_objective, make_counting_objective, make_lookup, make_total_lookup_function, convert_to_spherical_from_points
 from SDOptimizer.visualization import show_optimization_statistics, show_optimization_runs
 from time import sleep
@@ -32,7 +32,7 @@ matplotlib.use('module://ipykernel.pylab.backend_inline')
 
 
 class SDOptimizer():
-    def __init__(self):
+    def __init__(self, interpolation_method=INTERPOLATION_METHOD, **kwargs):
         self.logger = logging.getLogger('main')
         self.logger.debug("Instantiated the optimizer")
         self.is3d = False
@@ -40,6 +40,8 @@ class SDOptimizer():
         self.Y = None
         self.Z = None
         self.time_to_alarm = None
+
+        self.interpolation_method = interpolation_method
 
     def load_data(self, data_file):
         """
@@ -229,7 +231,8 @@ class SDOptimizer():
             visualize=False,
             spherical_projection=False,
             num_samples_visualized=10,
-            write_figs=PAPER_READY):
+            write_figs=PAPER_READY,
+            get_3d=False):
         """
         file_x, flip_y : Boolean
             Should the data be flipped about the corresponding axis for augmentation
@@ -245,10 +248,16 @@ class SDOptimizer():
             the number of scattered points to visualize the concentration over time for
         write_figs : Boolean
             Should you write out figures to ./vis/
+        get_3D : boolean
+            return the raw 3D values
         """
         time_to_alarm, concentrations = self.compute_time_to_alarm(
             alarm_threshold)
         num_timesteps, num_samples = concentrations.shape
+
+        if get_3d:
+            # return the raw 3D values
+            return self.X, self.Y, self.Z, time_to_alarm
 
         # all the rest is just augmentation
         if flip_x:
@@ -288,7 +297,7 @@ class SDOptimizer():
 
     def visualize_time_to_alarm(self, X, Y, time_to_alarm, num_samples,
                                 concentrations, num_samples_visualized=10,
-                                smoothed=False, spherical=True,
+                                smoothed=SMOOTH_PLOTS, spherical=True,
                                 write_figs=PAPER_READY):
         cb = self.pmesh_plot(
             X,
@@ -458,10 +467,10 @@ class SDOptimizer():
     def make_platypus_objective_function_competing_function(
             self, sources, bad_sources=[]):
         total_ret_func = make_total_lookup_function(
-            sources)  # the function to be optimized
+            sources, interpolation_method=self.interpolation_method)  # the function to be optimized
         bad_sources_func = make_total_lookup_function(
-            bad_sources, type="fastest"
-        )  # the function to be optimized
+            bad_sources, type="fastest",
+            interpolation_method=self.interpolation_method)  # the function to be optimized
 
         def multiobjective_func(x):  # this is the double objective function
             return [total_ret_func(x), bad_sources_func(x)]
