@@ -1,8 +1,10 @@
 ## Overview
 Most of the results can be seen using jupyter notebooks which run in your browser.
 
+I have aggressively reorganized the code. An example using the new style is in `SimpleOptimization.ipynb`.
+Whenever possible, future experiments should be conducted using this style.
 
-Currently the most useful files are `SphericalProjectionExperiments.ipynb` and `vis_3D.py`. An example using the new style is in `SimpleOptimization.ipynb`
+Older files `SphericalProjectionExperiments.ipynb` and `vis_3D.py` are still useful and may be the best way to view aggregate statistics.
 
 An initial toy example that we used at the beginning is presented in `ToyExample.ipynb`.
 An example of actually optimizing based on the 2D plane but using a quadratic time to alarm function is shown in `QuadraticExample.ipynb`.
@@ -12,20 +14,22 @@ A more through analysis of the optimizer's performance is shown in ``
 
 3D data which can't be visualized well in a notebook is shown in `vis_3D.py`.
 
-All the algorithms are in `SDOptimizer.py`
-
 ## Setup
 When you clone do `git clone --recurse-submodules https://github.com/russelldj/SmokeDetectorOptimization.git` This will include the code which does all the optimization.
 The you will need to `cd detector-placement-module` to enter the directory and execute `python setup.py develop` to make the library accessible.
 
-You will also need to install a variety of packages. Chief among them are `jupyter`, `scipy`, `matplotlib`, `pandas`, and likely some others. They can be installed with the command `pip install <library>` or, if conda is installed `conda install <library>`.
-`tqdm` is easiest to install using `pip install tqdm`
-
-In the future I will provide a requirements.txt file which helps install all the dependencies.
+You will also need to install a variety of packages. The hopefully-current dependencies are in
+`requirements.txt`. To install from that file do `pip install -r requirements.txt`
 
 ## Useful tricks
-Some constants are stored in `SDOptimizer/constants.py`.
+Some constants are stored in `detector-placement-module/src/smokedetectoroptimization/constants.py`.
 
+In the jupyter notebook menu you can do select `File` -> `Download As` -> `Python (.py)` to get the file as a normal python script.
+Running this on the command line will let you manipulate 3D plots.
+
+To use the python kernel in your current environment in jupyter, you need to explicitly set it up.
+With the desired environment activated, run the following command, replacing `<yourname>` with a name represening this kernel. For example, `smoke_detector`.
+`python -m ipykernel install --user --name placement-module --display-name <yourname>`
 ## Outputs
 Most scripts which generate visualization will also write a camera-ready version of the visualization to the `./vis/` folder. Generally, the only difference is this figure does not include a title. Within a jupyter notebook, images can be right clicked and saved. In a matplotlib pop-up, there is an icon which allows you to save files.  
 
