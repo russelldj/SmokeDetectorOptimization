@@ -18,18 +18,22 @@ A more through analysis of the optimizer's performance is shown in ``
 When you clone do `git clone --recurse-submodules https://github.com/russelldj/SmokeDetectorOptimization.git` This will include the code which does all the optimization.
 The you will need to `cd detector-placement-module` to enter the directory and execute `python setup.py develop` to make the library accessible.
 
-You will also need to install a variety of packages. The hopefully-current dependencies are in
+Python 3 is required. You will also need to install a variety of packages. The hopefully-current dependencies are in
 `requirements.txt`. To install from that file do `pip install -r requirements.txt`
 
 ## Useful tricks
+To use the python kernel in your current environment in jupyter, you need to explicitly set it up.
+With the desired environment activated, run the following command, replacing `<yourname>` with a name represening this kernel..
+`python -m ipykernel install --user --name placement-module --display-name <yourname>`
+For example, setting your name to `smoke_detector`:
+`python -m ipykernel install --user --name placement-module --display-name smoke_detector`
+This should then appear in your list of kernels.
+
 Some constants are stored in `detector-placement-module/src/smokedetectoroptimization/constants.py`.
 
 In the jupyter notebook menu you can do select `File` -> `Download As` -> `Python (.py)` to get the file as a normal python script.
 Running this on the command line will let you manipulate 3D plots.
 
-To use the python kernel in your current environment in jupyter, you need to explicitly set it up.
-With the desired environment activated, run the following command, replacing `<yourname>` with a name represening this kernel. For example, `smoke_detector`.
-`python -m ipykernel install --user --name placement-module --display-name <yourname>`
 ## Outputs
 Most scripts which generate visualization will also write a camera-ready version of the visualization to the `./vis/` folder. Generally, the only difference is this figure does not include a title. Within a jupyter notebook, images can be right clicked and saved. In a matplotlib pop-up, there is an icon which allows you to save files.  
 

@@ -66,6 +66,7 @@ six==1.15.0
 terminado==0.8.3
 testpath==0.4.4
 tornado==6.0.4
+tqdm==4.48.0
 traitlets==4.3.3
 vtk==9.0.1
 wcwidth==0.2.5
