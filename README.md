@@ -1,18 +1,7 @@
 ## Overview
 Most of the results can be seen using jupyter notebooks which run in your browser.
 
-I have aggressively reorganized the code. An example using the new style is in `SimpleOptimization.ipynb`.
-Whenever possible, future experiments should be conducted using this style.
-
-Older files `SphericalProjectionExperiments.ipynb` and `vis_3D.py` are still useful and may be the best way to view aggregate statistics.
-
-An initial toy example that we used at the beginning is presented in `ToyExample.ipynb`.
-An example of actually optimizing based on the 2D plane but using a quadratic time to alarm function is shown in `QuadraticExample.ipynb`.
-The experiments with real data are shown in `Experiements.ipynb`.
-More recently, I've done experiments in `SphericalProjectionExperiments.ipynb` with the new data and spherical projections.
-A more through analysis of the optimizer's performance is shown in ``
-
-3D data which can't be visualized well in a notebook is shown in `vis_3D.py`.
+I have aggressively reorganized the code. An example using the new style is in `SimpleOptimization.ipynb`. Whenever possible, future experiments should be conducted using this style. `SphericalProjectionExperiments.ipynb` is still included for reference, but all older notebooks have been moved to `old_notebooks` and will require an older version of the code to run.
 
 ## Setup
 When you clone do `git clone --recurse-submodules https://github.com/russelldj/SmokeDetectorOptimization.git` This will include the code which does all the optimization.
