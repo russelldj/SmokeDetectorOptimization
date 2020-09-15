@@ -20,3 +20,7 @@ FALSE_ALARM_FOLDERS = ["bike_full3D"]
 # prepend the absolute path of the data directory
 FALSE_ALARM_FOLDERS = [join(data_dir, false_alarm_folder)
                        for false_alarm_folder in FALSE_ALARM_FOLDERS]
+
+NASA_DETECTORS = (2.11500001, -3., -2.84649992, 6.42500019, 0., -2.84649992)
+#SOURCE_LOCATIONS=[1.9866, -0.5119, -1.1846, 2.2185, -2.5768, -1.0527, 7.279, -.0300, -1.1963]
+SOURCE_LOCATIONS=[1.9866, -0.5119, -1.1846, 2.2185, -2.5768, -1.0527, 7.279, -3.0, -1.1963]
