@@ -1,3 +1,3 @@
 [submodule "detector-placement-module"]
 	path = detector-placement-module
-	url = git@github.com:russelldj/detector-placement-module.git
+	url = https://github.com/russelldj/detector-placement-module.git 
