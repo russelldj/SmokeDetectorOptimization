@@ -26,7 +26,7 @@ In the jupyter notebook menu you can do select `File` -> `Download As` -> `Pytho
 Running this on the command line will let you manipulate 3D plots.
 
 ## Experiments
-Please run experiments in the `experiments` directory. It would be best to name it as <name>\_<brief description>\_<date>.ipynb.
+Please run experiments in the `experiments` directory. It would be best to name it as name_brief description_date.ipynb.
 In most cases, you could probably copy `ExampleOptimization.ipynb` and modify it from there.
 
 ## Outputs
