@@ -4,4 +4,6 @@ vals.npy
 locs.npy
 __pycache__/
 *pyc
+*pkl
+*pkl.meta
 .ipynb_checkpoints/

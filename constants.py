@@ -34,5 +34,7 @@ FALSE_ALARM_FOLDERS_LONG = ["bike_1000_steps"]
 FALSE_ALARM_FOLDERS_LONG = [join(data_dir, false_alarm_folder)
                             for false_alarm_folder in FALSE_ALARM_FOLDERS_LONG]
 
-NASA_DETECTORS = (2.11500001, -3., -2.84649992, 6.42500019, 0., -2.84649992)
-SOURCE_LOCATIONS=(1.9866, -0.5119, -1.1846, 2.2185, -2.5768, -1.0527, 7.279, -3.0, -1.1963)
+NASA_DETECTORS = ((2.11500001, -3., -2.84649992), (6.42500019, 0., -2.84649992))
+SOURCE_LOCATIONS=((1.9866, -0.5119, -1.1846), (2.2185, -2.5768, -1.0527), (7.279, -3.0, -1.1963))
+
+MESH_FILE = join(data_dir, "surface_mesh.stl")
