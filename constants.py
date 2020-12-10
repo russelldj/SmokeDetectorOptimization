@@ -14,10 +14,12 @@ SMOKE_FOLDERS = ["first_computer_full3D",
 SMOKE_FOLDERS = [join(data_dir, smoke_folder)
                  for smoke_folder in SMOKE_FOLDERS]
 
-SMOKE_FOLDERS_LONG = ["laptop_1000_steps", "wall_computer_1000_steps"]
+SMOKE_FOLDERS_LONG = ["laptop_1000_steps",
+                      "wall_computer_1_1000_steps",
+                      "wall_computer_2_1000_steps"]
 
 # prepend the absolute path of the data directory
-SMOKE_FOLDERS_LONG = [join(data_dir, smoke_folder)
+SMOKE_FOLDERS_LONG = [join(data_dir, "long_runs", smoke_folder)
                       for smoke_folder in SMOKE_FOLDERS_LONG]
 
 
@@ -25,7 +27,7 @@ SMOKE_FOLDERS_LONG = [join(data_dir, smoke_folder)
 FALSE_ALARM_FOLDERS = ["bike_full3D"]
 
 # prepend the absolute path of the data directory
-FALSE_ALARM_FOLDERS = [join(data_dir, false_alarm_folder)
+FALSE_ALARM_FOLDERS = [join(data_dir, "long_runs", false_alarm_folder)
                        for false_alarm_folder in FALSE_ALARM_FOLDERS]
 
 FALSE_ALARM_FOLDERS_LONG = ["bike_1000_steps"]
